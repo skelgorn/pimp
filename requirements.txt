@@ -1,0 +1,9 @@
+# Dependências do Projeto LetrasPIP
+spotipy
+PyQt6
+lyricsgenius
+Pillow
+syncedlyrics
+requests
+colorgram.py
+python-dotenv
