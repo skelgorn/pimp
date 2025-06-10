@@ -8,7 +8,6 @@ import syncedlyrics
 from PyQt6.QtWidgets import QApplication, QWidget
 from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, pyqtSlot, QTimer
 from PyQt6.QtGui import QFont, QColor, QWheelEvent, QMouseEvent, QPainter, QBrush, QPen, QFontMetrics
-from dotenv import load_dotenv
 
 def parse_lrc(lrc_text):
     if not lrc_text:
@@ -24,8 +23,6 @@ def parse_lrc(lrc_text):
             parsed_lyrics.append((time_ms, text.strip()))
     return sorted(parsed_lyrics, key=lambda x: x[0])
 
-load_dotenv()
-
 class SpotifyThread(QThread):
     lyrics_data_ready = pyqtSignal(dict)
     def __init__(self, parent=None):
@@ -38,14 +35,35 @@ class SpotifyThread(QThread):
 
     def setup_spotify(self):
         try:
-            auth_manager = spotipy.SpotifyOAuth(scope="user-read-playback-state", redirect_uri=os.getenv("SPOTIPY_REDIRECT_URI"), client_id=os.getenv("SPOTIPY_CLIENT_ID"), client_secret=os.getenv("SPOTIPY_CLIENT_SECRET"), show_dialog=True, cache_path=".spotipyoauthcache")
+            # --- PREENCHA SUAS CHAVES DO SPOTIFY AQUI ---
+            SPOTIPY_CLIENT_ID = '6859bf6df1fa4b0e998a90d794aaa884'
+            SPOTIPY_CLIENT_SECRET = 'adf235e1983a4c9f9a358192773314f2'
+            SPOTIPY_REDIRECT_URI = 'http://127.0.0.1:8888/callback'
+            # -------------------------------------------
+
+            auth_manager = spotipy.SpotifyOAuth(
+                scope="user-read-playback-state",
+                client_id=SPOTIPY_CLIENT_ID,
+                client_secret=SPOTIPY_CLIENT_SECRET,
+                redirect_uri=SPOTIPY_REDIRECT_URI,
+                cache_path=".spotipyoauthcache"
+            )
             self.sp = spotipy.Spotify(auth_manager=auth_manager)
         except Exception as e:
             self.lyrics_data_ready.emit({'text': f"Erro de autenticação: {e}", 'parsed': [], 'progress': 0})
 
     def setup_genius(self):
-        token = os.getenv("GENIUS_ACCESS_TOKEN")
-        self.genius = lyricsgenius.Genius(token, verbose=False, remove_section_headers=True, timeout=15) if token and token != 'SEU_GENIUS_ACCESS_TOKEN_AQUI' else None
+        try:
+            # --- PREENCHA SUA CHAVE DO GENIUS AQUI ---
+            GENIUS_ACCESS_TOKEN = 'qlvL0KeFAapheVmiMPMMrRP0JV3slDCmHpt30H_trG3o_QZjUNaiLHPXL4uC9uUQ'
+            # -----------------------------------------
+
+            if GENIUS_ACCESS_TOKEN and GENIUS_ACCESS_TOKEN != 'SEU_GENIUS_ACCESS_TOKEN_AQUI':
+                self.genius = lyricsgenius.Genius(GENIUS_ACCESS_TOKEN, verbose=False, remove_section_headers=True, timeout=15)
+            else:
+                self.genius = None
+        except Exception as e:
+            self.genius = None
 
     def run(self):
         self.setup_spotify()
