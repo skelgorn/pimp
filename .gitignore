@@ -121,3 +121,6 @@ dmypy.json
 
 # Spotify cache
 .spotipyoauthcache
+
+# Inno Setup Installer output
+installer/
