@@ -18,8 +18,9 @@ develop-eggs/
 # PyInstaller
 *.spec
 
-# Installer output
+# Installer folder
 installer/
+Output/
 
 # Virtual Environments
 .env

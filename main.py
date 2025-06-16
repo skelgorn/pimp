@@ -3,44 +3,30 @@ import os
 import re
 import time
 import logging
+import winreg
 
-# Configura o logging para um arquivo na pasta do usuário
-log_file = os.path.join(os.path.expanduser('~'), 'letras_pip_debug.log')
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filename=log_file,
-    filemode='w'  # 'w' para sobrescrever o log a cada execução
-)
+from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
+from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, pyqtSlot, QTimer
+from PyQt6.QtGui import QFont, QColor, QWheelEvent, QMouseEvent, QPainter, QBrush, QPen, QFontMetrics, QIcon
 
-logging.info('--- SCRIPT INICIADO ---')
 import spotipy
 import lyricsgenius
 import syncedlyrics
-import os
 
-# Define a stable cache path in the user's AppData folder
+# --- Configuração de Caminhos e Constantes ---
 APP_NAME = "LetrasPIP"
 CACHE_DIR = os.path.join(os.getenv('APPDATA'), APP_NAME)
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 CACHE_FILE = os.path.join(CACHE_DIR, ".spotipyoauthcache")
 RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
-from PyQt6.QtWidgets import QApplication, QWidget, QMenu, QSystemTrayIcon
-from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal, pyqtSlot, QTimer
-from PyQt6.QtGui import QFont, QColor, QWheelEvent, QMouseEvent, QPainter, QBrush, QPen, QFontMetrics, QIcon
-import winreg
-import sys
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
-import sys
 
 def parse_lrc(lrc_text):
     if not lrc_text:
@@ -68,12 +54,9 @@ class SpotifyThread(QThread):
 
     def setup_spotify(self):
         try:
-            # --- PREENCHA SUAS CHAVES DO SPOTIFY AQUI ---
             SPOTIPY_CLIENT_ID = '6859bf6df1fa4b0e998a90d794aaa884'
             SPOTIPY_CLIENT_SECRET = 'adf235e1983a4c9f9a358192773314f2'
             SPOTIPY_REDIRECT_URI = 'http://127.0.0.1:8888/callback'
-            # -------------------------------------------
-
             auth_manager = spotipy.SpotifyOAuth(
                 scope="user-read-playback-state",
                 client_id=SPOTIPY_CLIENT_ID,
@@ -87,10 +70,7 @@ class SpotifyThread(QThread):
 
     def setup_genius(self):
         try:
-            # --- PREENCHA SUA CHAVE DO GENIUS AQUI ---
             GENIUS_ACCESS_TOKEN = 'qlvL0KeFAapheVmiMPMMrRP0JV3slDCmHpt30H_trG3o_QZjUNaiLHPXL4uC9uUQ'
-            # -----------------------------------------
-
             if GENIUS_ACCESS_TOKEN and GENIUS_ACCESS_TOKEN != 'SEU_GENIUS_ACCESS_TOKEN_AQUI':
                 self.genius = lyricsgenius.Genius(GENIUS_ACCESS_TOKEN, verbose=False, remove_section_headers=True, timeout=15)
             else:
@@ -131,9 +111,8 @@ class SpotifyThread(QThread):
                     else:
                         self.parsed_lyrics = []
                         self.current_lyrics_text = f"{song_title}\n{artist}"
-            # Adiciona um adiantamento de 500ms para sincronizar melhor
-            self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
-            time.sleep(0.25)
+                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
+                time.sleep(0.25)
             except Exception as e:
                 self.lyrics_data_ready.emit({'text': "Erro ao buscar dados. Reconectando...", 'parsed': [], 'progress': 0})
                 self.current_track_id = None
@@ -149,6 +128,7 @@ class LyricsWindow(QWidget):
         self.scroll_snap_back_timer.setSingleShot(True)
         self.scroll_snap_back_timer.setInterval(3000)
         self.scroll_snap_back_timer.timeout.connect(self.enable_snap_back)
+        self.setup_tray_icon()
         self.init_ui()
         self.spotify_thread = SpotifyThread(self)
         self.spotify_thread.lyrics_data_ready.connect(self.update_lyrics_data)
@@ -158,29 +138,21 @@ class LyricsWindow(QWidget):
         self.tray_icon = QSystemTrayIcon(self)
         self.tray_icon.setIcon(QIcon(resource_path('icon.ico')))
         self.tray_icon.setToolTip("LetrasPIP Spotify")
-
         tray_menu = QMenu()
-        
         show_hide_action = tray_menu.addAction("Mostrar/Esconder Letras")
         show_hide_action.triggered.connect(self.toggle_visibility)
-        
         tray_menu.addSeparator()
-
         self.startup_action = tray_menu.addAction("Iniciar com o Windows")
         self.startup_action.setCheckable(True)
-        
         if getattr(sys, 'frozen', False):
             self.startup_action.setChecked(self.is_in_startup())
             self.startup_action.triggered.connect(self.toggle_startup)
         else:
             self.startup_action.setEnabled(False)
             self.startup_action.setToolTip("Disponível apenas na versão instalada")
-
         tray_menu.addSeparator()
-        
         quit_action = tray_menu.addAction("Fechar")
         quit_action.triggered.connect(QApplication.instance().quit)
-
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.show()
         self.tray_icon.activated.connect(self.on_tray_icon_activated)
@@ -190,10 +162,7 @@ class LyricsWindow(QWidget):
             self.toggle_visibility()
 
     def toggle_visibility(self):
-        if self.isVisible():
-            self.hide()
-        else:
-            self.show()
+        self.setVisible(not self.isVisible())
 
     def is_in_startup(self):
         try:
@@ -215,21 +184,16 @@ class LyricsWindow(QWidget):
             pass
 
     def toggle_startup(self):
-        is_checked = self.startup_action.isChecked()
-        self.set_startup(is_checked)
+        self.set_startup(self.startup_action.isChecked())
 
     def closeEvent(self, event):
         self.hide()
         event.ignore()
 
-
-
-
-
     def init_ui(self):
         self.setWindowIcon(QIcon(resource_path('icon.ico')))
         self.setWindowTitle('Letras PIP Spotify')
-        self.setGeometry(100, 100, 600, 250)
+        self.setGeometry(100, 100, 400, 250)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
@@ -241,12 +205,19 @@ class LyricsWindow(QWidget):
 
     @pyqtSlot(dict)
     def update_lyrics_data(self, data):
-        new_parsed_lyrics, progress_ms, self.text_content = data.get('parsed', []), data.get('progress', 0), data.get('text', '')
-        if not new_parsed_lyrics:
-            if self.parsed_lyrics: self.parsed_lyrics, self.current_line_index, self.manual_scroll_offset = [], -1, 0
-            self.update()
-            return
-        if self.parsed_lyrics != new_parsed_lyrics: self.parsed_lyrics, self.manual_scroll_offset = new_parsed_lyrics, 0
+        new_parsed_lyrics = data.get('parsed', [])
+        progress_ms = data.get('progress', 0)
+        self.text_content = data.get('text', '')
+
+        if self.parsed_lyrics != new_parsed_lyrics:
+            self.parsed_lyrics = new_parsed_lyrics
+            self.manual_scroll_offset = 0
+            # Auto-ajusta a largura da janela
+            font = QFont('Arial', 22); font.setBold(True)
+            fm = QFontMetrics(font)
+            max_width = max(fm.horizontalAdvance(line) for _, line in self.parsed_lyrics) if self.parsed_lyrics else 0
+            self.resize(max(max_width + 40, 400), self.height())
+
         new_current_line_index = -1
         for i, (time, text) in enumerate(self.parsed_lyrics):
             if progress_ms >= time: new_current_line_index = i
@@ -265,8 +236,7 @@ class LyricsWindow(QWidget):
         painter.drawRoundedRect(self.rect(), 10, 10)
         painter.setPen(QPen(Qt.GlobalColor.white))
         if not self.parsed_lyrics:
-            font = QFont('Arial', 12)
-            painter.setFont(font)
+            painter.setFont(QFont('Arial', 12))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text_content)
         else:
             line_height = 35
@@ -284,14 +254,12 @@ class LyricsWindow(QWidget):
                 painter.setFont(font)
                 distance_from_center = i - view_center_index
                 opacity = max(0, 1.0 - (abs(distance_from_center) * 0.25))
-                color = QColor(255, 255, 255)
-                if not is_current_line: color = QColor(220, 220, 220)
+                color = QColor(220, 220, 220)
                 color.setAlphaF(opacity)
                 painter.setPen(QPen(color))
                 y_pos = view_center_y + (distance_from_center * line_height)
                 fm = QFontMetrics(font)
-                text_width = fm.horizontalAdvance(line_text)
-                x_pos = (self.width() - text_width) // 2
+                x_pos = (self.width() - fm.horizontalAdvance(line_text)) // 2
                 painter.drawText(QPoint(x_pos, y_pos), line_text)
 
     def wheelEvent(self, event: QWheelEvent):
@@ -313,26 +281,7 @@ class LyricsWindow(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent): self._drag_pos = None; event.accept()
 
 if __name__ == '__main__':
-    logging.info('Entrou no bloco de execução principal.')
-    try:
-        logging.info('Criando QApplication...')
-        app = QApplication(sys.argv)
-        logging.info('QApplication criada.')
-
-        logging.info('Criando instância da LyricsWindow...')
-        window = LyricsWindow()
-        logging.info('LyricsWindow criada.')
-
-        logging.info('Chamando window.show()...')
-        window.show()
-        logging.info('window.show() chamado.')
-
-        logging.info('Iniciando loop de eventos da aplicação...')
-        exit_code = app.exec()
-        logging.info(f'Loop de eventos finalizado com código {exit_code}.')
-        sys.exit(exit_code)
-
-    except Exception as e:
-        logging.critical(f'ERRO FATAL E NÃO TRATADO: {e}', exc_info=True)
-        raise
-
+    app = QApplication(sys.argv)
+    window = LyricsWindow()
+    window.show()
+    sys.exit(app.exec())
