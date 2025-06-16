@@ -3,7 +3,7 @@ from cx_Freeze import setup, Executable
 
 # Opções de build para o cx_Freeze
 build_exe_options = {
-
+    "packages": ["os", "sys", "re", "time", "spotipy", "lyricsgenius", "syncedlyrics", "config", "spotify_thread", "lyrics_window"],
     "excludes": ["tkinter"],
     "include_files": ["icon.ico"],
 }
