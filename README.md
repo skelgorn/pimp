@@ -1,53 +1,93 @@
-# Letras PIP Spotify
+# LetrasPIP - Letras do Spotify em Picture-in-Picture
 
 Uma aplicação para exibir letras de músicas do Spotify em uma janela flutuante (estilo Picture-in-Picture) na tela do seu computador, sincronizada com a música atual.
 
-## Funcionalidades Principais (Planejadas)
+## Status do Projeto
 
--   **Janela Flutuante Personalizável:**
-    -   Fundo transparente para integração suave com qualquer tela.
-    -   Pode ser movida e redimensionada facilmente pelo usuário.
-    -   Permanece sempre visível (always-on-top).
--   **Sincronização de Letras com Spotify:**
-    -   Exibe as letras da música que está tocando no Spotify.
-    -   Destaque visual para a linha atual da música.
-    -   Rolagem automática para manter a linha atual centralizada na janela (formato de 5 linhas: 2 anteriores, atual destacada, 2 próximas).
--   **Estilo Dinâmico:**
-    -   Cores do texto e destaque sincronizadas com a capa do álbum da música atual.
-    -   Linha atual com cor mais brilhante, outras linhas mais suaves.
-    -   Borda/sombra no texto para garantir legibilidade sobre diferentes fundos.
--   **Interação Intuitiva:**
-    -   Mova a janela clicando diretamente sobre a área das letras.
+**Versão Atual:** 0.1-beta
 
-## Como Configurar e Usar
+Este projeto está em desenvolvimento ativo. A versão atual é funcional e inclui um instalador para Windows, mas pode conter bugs.
 
-1.  **Crie um Ambiente Virtual (Recomendado):**
-    Na pasta do projeto (`C:\Users\Leticia\CascadeProjects\LetrasPIP\`):
+---
+
+## Instalação (Para Usuários Windows)
+
+1.  **Baixe o Instalador:** Vá para a [**página de Releases**](https://github.com/skelgorn/pimp/releases) do projeto.
+2.  **Faça o Download:** Baixe o arquivo `LetrasPIP_setup.exe` da versão mais recente.
+3.  **Execute o Instalador:** Rode o `LetrasPIP_setup.exe`. Ele irá instalar a aplicação, criar um atalho na área de trabalho e iniciar o programa.
+    *   **Aviso:** O Windows SmartScreen pode exibir um alerta por ser um aplicativo não reconhecido. Clique em "Mais informações" e depois em "Executar assim mesmo".
+
+## Como Usar
+
+-   Após a instalação, o LetrasPIP será iniciado.
+-   Na primeira vez, você precisará autorizar o aplicativo a se conectar com sua conta do Spotify. Uma janela do navegador será aberta para você fazer o login.
+-   Depois de autorizado, o aplicativo irá detectar a música que está tocando no seu Spotify e exibir as letras na janela flutuante.
+-   Para mover a janela, simplesmente clique e arraste-a para qualquer lugar da tela.
+
+---
+
+## Funcionalidades
+
+### Implementadas
+-   Janela flutuante que permanece sempre visível (always-on-top).
+-   Busca e exibição de letras sincronizadas com a música do Spotify.
+-   Login e autorização com a conta do Spotify.
+-   Instalador para Windows.
+
+### Planejadas
+-   Fundo transparente e personalização da janela.
+-   Rolagem automática com destaque da linha atual.
+-   Estilo dinâmico (cores baseadas na capa do álbum).
+-   Opções de personalização na própria interface (fonte, tamanho, etc.).
+
+---
+
+## Para Desenvolvedores
+
+Se você deseja contribuir ou rodar o projeto a partir do código-fonte, siga os passos abaixo.
+
+### 1. Configuração do Ambiente
+
+-   **Clone o repositório:**
     ```bash
-    python -m venv venv
-    # Windows
-    .\venv\Scripts\activate
-    # macOS/Linux
-    # source venv/bin/activate
+    git clone https://github.com/skelgorn/pimp.git
+    cd pimp
     ```
-
-2.  **Instale as Dependências:**
+-   **Crie e ative um ambiente virtual:**
+    ```bash
+    # Windows
+    python -m venv venv
+    .\venv\Scripts\activate
+    
+    # macOS/Linux
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+-   **Instale as dependências:**
     ```bash
     pip install -r requirements.txt
     ```
+-   **Configure as chaves de API:**
+    -   Copie o arquivo `.env.example` para um novo arquivo chamado `.env`.
+    -   Edite o `.env` com suas credenciais do Spotify Developer Dashboard e da API do Genius.
 
-3.  **Configure as Chaves de API:**
-    -   Na pasta do projeto, copie o arquivo `.env.example` para um novo arquivo chamado `.env`.
-    -   Edite o arquivo `.env` com suas credenciais:
-        -   `SPOTIPY_CLIENT_ID`: Seu Client ID do Spotify Developer Dashboard.
-        -   `SPOTIPY_CLIENT_SECRET`: Seu Client Secret do Spotify Developer Dashboard.
-        -   `SPOTIPY_REDIRECT_URI`: A URI de redirecionamento configurada no seu app Spotify (ex: `http://localhost:8888/callback`).
-        -   `GENIUS_ACCESS_TOKEN`: Seu Access Token da API do Genius.
+### 2. Executando a Aplicação
+```bash
+python main.py
+```
 
-4.  **Execute a Aplicação:**
+### 3. Compilando o Projeto
+
+O projeto utiliza **PyInstaller** para criar o executável e **Inno Setup** para criar o instalador.
+
+-   **Gerar o executável:**
     ```bash
-    python main.py
+    pyinstaller LetrasPIP.spec
     ```
+-   **Gerar o instalador:**
+    -   Abra o arquivo `setup.iss` com o Inno Setup Compiler e clique em "Compile".
+
+---
 
 ## Tecnologias Utilizadas
 
@@ -55,14 +95,8 @@ Uma aplicação para exibir letras de músicas do Spotify em uma janela flutuant
 -   PyQt6 (para a interface gráfica)
 -   Spotipy (para interação com a API do Spotify)
 -   LyricsGenius (para buscar letras de músicas)
--   Pillow & Colorgram.py (para extração de cores da capa do álbum)
+-   Pillow & Colorgram.py (para extração de cores)
 -   SyncedLyrics (para letras sincronizadas)
 -   python-dotenv (para variáveis de ambiente)
-
-## Próximos Passos / Melhorias Futuras
-
--   [ ] Implementar busca e sincronização de letras (LRC e Genius).
--   [ ] Adicionar lógica de destaque e rolagem de 5 linhas.
--   [ ] Implementar extração de cor da capa do álbum.
--   [ ] Opções de personalização (fonte, tamanho, cores) via UI.
--   [ ] Empacotamento da aplicação para distribuição mais fácil.
+-   PyInstaller (para empacotamento)
+-   Inno Setup (para o instalador)
