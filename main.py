@@ -131,8 +131,9 @@ class SpotifyThread(QThread):
                     else:
                         self.parsed_lyrics = []
                         self.current_lyrics_text = f"{song_title}\n{artist}"
-                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms})
-                time.sleep(0.25)
+            # Adiciona um adiantamento de 500ms para sincronizar melhor
+            self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
+            time.sleep(0.25)
             except Exception as e:
                 self.lyrics_data_ready.emit({'text': "Erro ao buscar dados. Reconectando...", 'parsed': [], 'progress': 0})
                 self.current_track_id = None
