@@ -31,7 +31,7 @@ class SpotifyThread(QThread):
         self.genius = None
         self.current_track_id = None
         self.parsed_lyrics = []
-        self.current_lyrics_text = "Iniciando..."
+        self.current_lyrics_text = "Conectando..."
 
     def setup_spotify(self):
         try:
@@ -44,7 +44,7 @@ class SpotifyThread(QThread):
             )
             self.sp = spotipy.Spotify(auth_manager=auth_manager)
         except Exception as e:
-            self.lyrics_data_ready.emit({'text': f"Erro de autenticação: {e}", 'parsed': [], 'progress': 0})
+            self.lyrics_data_ready.emit({'text': f"Erro ao iniciar Spotify: {e}", 'parsed': [], 'progress': 0})
 
     def setup_genius(self):
         try:
@@ -56,8 +56,19 @@ class SpotifyThread(QThread):
             self.genius = None
 
     def run(self):
+        self.lyrics_data_ready.emit({'text': "Conectando ao Spotify...", 'parsed': [], 'progress': 0})
         self.setup_spotify()
-        if not self.sp: return
+        if not self.sp:
+            return
+
+        try:
+            # Força a autenticação agora, se necessário, antes de entrar no loop
+            self.sp.current_user()
+        except Exception as e:
+            self.lyrics_data_ready.emit({'text': "Falha na autenticação.\nPor favor, reinicie o app e autorize no navegador.", 'parsed': [], 'progress': 0})
+            return
+
+        self.lyrics_data_ready.emit({'text': "Nenhuma música tocando...", 'parsed': [], 'progress': 0})
         self.setup_genius()
         while True:
             try:
