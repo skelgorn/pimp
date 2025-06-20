@@ -41,11 +41,6 @@ class SpotifyThread(QThread):
         self.current_artist = None
         self.current_song_title = None
 
-    def set_sync_offset(self, offset):
-        self.sync_offset = offset
-
-    def get_sync_offset(self):
-        return self.sync_offset
 
     def force_genius_search(self):
         if not self.genius or not self.current_track_id:
@@ -68,7 +63,7 @@ class SpotifyThread(QThread):
                     self.current_lyrics_text = lyrics_body
                     playback = self.sp.current_playback()
                     progress_ms = playback.get('progress_ms', 0) if playback else 0
-                    self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
+                    self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms})
             else:
                 self.lyrics_data_ready.emit({'text': f"Letra não encontrada no Genius para:\n{song_title_original}", 'parsed': [], 'progress': 0})
         except FunctionTimedOut:

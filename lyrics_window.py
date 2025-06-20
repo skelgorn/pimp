@@ -34,6 +34,10 @@ class LyricsWindow(QtWidgets.QWidget):
         self.scroll_snap_back_timer.setInterval(3000)
         self.scroll_snap_back_timer.timeout.connect(self.enable_snap_back)
         self.initial_label_hidden = False
+        self.sync_offset = 0  # Offset de sincronização só aqui!
+        import traceback
+        print(f"[OFFSET DEBUG] sync_offset inicializado para 0 em __init__")
+        traceback.print_stack(limit=2)
         self.create_tray_icon()
         self.init_ui()
         self.spotify_thread = SpotifyThread(self)
@@ -48,16 +52,10 @@ class LyricsWindow(QtWidgets.QWidget):
         self.tray_menu = QtWidgets.QMenu(self) # Passa 'self' como pai
 
         # 2. Cria as ações do menu como variáveis de instância
-        self.show_action = QAction("Mostrar/Ocultar", self)
-        self.startup_action = QAction("Iniciar com o Windows", self)
-        self.startup_action.setCheckable(True)
         self.logout_action = QAction("Sair da Conta", self)
         self.quit_action = QAction("Sair do Aplicativo", self)
 
         # 3. Adiciona as ações ao menu
-        self.tray_menu.addAction(self.show_action)
-        self.tray_menu.addSeparator()
-        self.tray_menu.addAction(self.startup_action)
         self.tray_menu.addSeparator()
         self.tray_menu.addAction(self.logout_action)
         self.tray_menu.addAction(self.quit_action)
@@ -73,32 +71,19 @@ class LyricsWindow(QtWidgets.QWidget):
         self.tray_menu.addAction(self.sync_status_action)
 
         self.tray_menu.addSeparator()
-        self.force_genius_action = QAction("Forçar busca no Genius", self)
-        self.tray_menu.addAction(self.force_genius_action)
+        self.reset_position_action = QAction("Centralizar letra", self)
+        self.tray_menu.addAction(self.reset_position_action)
 
         # 4. Define o menu como o menu de contexto (o que abre com o botão direito)
         self.tray_icon.setContextMenu(self.tray_menu)
 
         # 5. Conecta as ações às suas funções
-        self.show_action.triggered.connect(self.toggle_visibility)
-        self.startup_action.triggered.connect(self.toggle_startup)
-        self.logout_action.triggered.connect(self.logout)
         self.quit_action.triggered.connect(QtWidgets.QApplication.instance().quit)
         self.increase_sync_action.triggered.connect(self.increase_sync)
         self.decrease_sync_action.triggered.connect(self.decrease_sync)
-        self.force_genius_action.triggered.connect(self.force_genius_search)
+        self.reset_position_action.triggered.connect(self.reset_lyrics_position)
 
-        # 6. Configura a ação de iniciar com o sistema
-        if getattr(sys, 'frozen', False):
-            self.startup_action.setChecked(self.is_in_startup())
-        else:
-            self.startup_action.setEnabled(False)
-            self.startup_action.setToolTip("Disponível apenas na versão instalada")
-
-        # 7. Conecta o clique esquerdo para mostrar/ocultar a janela
-        self.tray_icon.activated.connect(self.on_tray_icon_activated)
-        
-        # 8. Mostra o ícone
+        # 6. Mostra o ícone
         self.tray_icon.show()
 
     def logout(self):
@@ -120,38 +105,10 @@ class LyricsWindow(QtWidgets.QWidget):
             # 4. Fecha o aplicativo, aconteça o que acontecer
             QtWidgets.QApplication.instance().quit()
 
-    def on_tray_icon_activated(self, reason):
-        # Se for clique esquerdo (Trigger), mostra/oculta a janela
-        if reason == QtWidgets.QSystemTrayIcon.ActivationReason.Trigger:
-            self.toggle_visibility()
-        # Se for clique direito (Context), mostra o menu manualmente na posição do cursor
-        elif reason == QtWidgets.QSystemTrayIcon.ActivationReason.Context:
-            self.tray_menu.popup(QtGui.QCursor.pos())
 
-    def toggle_visibility(self):
-        self.setVisible(not self.isVisible())
 
-    def is_in_startup(self):
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY_PATH, 0, winreg.KEY_READ) as key:
-                winreg.QueryValueEx(key, APP_NAME)
-            return True
-        except FileNotFoundError:
-            return False
 
-    def set_startup(self, enable):
-        try:
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY_PATH, 0, winreg.KEY_ALL_ACCESS) as key:
-                if enable:
-                    executable_path = f'"{sys.executable}"'
-                    winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, executable_path)
-                else:
-                    winreg.DeleteValue(key, APP_NAME)
-        except Exception:
-            pass
 
-    def toggle_startup(self):
-        self.set_startup(self.startup_action.isChecked())
 
     def closeEvent(self, event):
         self.hide()
@@ -165,40 +122,86 @@ class LyricsWindow(QtWidgets.QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
 
-        self.sync_offset = 0
 
 
 
     def increase_sync(self):
-        current_offset = self.spotify_thread.get_sync_offset()
-        new_offset = current_offset + 500
-        self.spotify_thread.set_sync_offset(new_offset)
+        self.sync_offset += 500
+        import traceback
+        print(f"[OFFSET DEBUG] sync_offset alterado para {self.sync_offset} em increase_sync")
+        traceback.print_stack(limit=2)
+        self._user_adjusted_sync = True
+        import traceback
+        print(f"[OFFSET DEBUG] _user_adjusted_sync alterado para True em increase_sync")
+        traceback.print_stack(limit=2)
+        print(f"[Ajuste manual] increase_sync: sync_offset={self.sync_offset}")
         self.update_sync_label()
+        self.update()
 
     def decrease_sync(self):
-        current_offset = self.spotify_thread.get_sync_offset()
-        new_offset = current_offset - 500
-        self.spotify_thread.set_sync_offset(new_offset)
+        self.sync_offset -= 500
+        import traceback
+        print(f"[OFFSET DEBUG] sync_offset alterado para {self.sync_offset} em decrease_sync")
+        traceback.print_stack(limit=2)
+        self._user_adjusted_sync = True
+        import traceback
+        print(f"[OFFSET DEBUG] _user_adjusted_sync alterado para True em decrease_sync")
+        traceback.print_stack(limit=2)
+        print(f"[Ajuste manual] decrease_sync: sync_offset={self.sync_offset}")
         self.update_sync_label()
+        self.update()
 
-    def force_genius_search(self):
-        self.spotify_thread.force_genius_search()
+
+    def reset_lyrics_position(self):
+        """Centraliza a janela no monitor principal e centraliza a letra na tela."""
+        self.manual_scroll_offset = 0
+        self.user_has_scrolled = False
+        # Centraliza a janela no monitor principal
+        screen = QtWidgets.QApplication.primaryScreen()
+        screen_geometry = screen.availableGeometry()
+        window_geometry = self.frameGeometry()
+        center_point = screen_geometry.center()
+        window_geometry.moveCenter(center_point)
+        self.move(window_geometry.topLeft())
+        self.update()
+
 
     def update_sync_label(self):
-        current_offset = self.spotify_thread.get_sync_offset()
-        self.sync_status_action.setText(f"Ajuste: {current_offset / 1000:.1f}s")
+        self.sync_status_action.setText(f"Ajuste: {self.sync_offset / 1000:.1f}s")
 
     def enable_snap_back(self):
         self.user_has_scrolled = False
         self.manual_scroll_offset = 0
+        self._user_adjusted_sync = False
+        import traceback
+        print(f"[OFFSET DEBUG] _user_adjusted_sync alterado para False em enable_snap_back")
+        traceback.print_stack(limit=2)
         self.update()
 
     @pyqtSlot(dict)
     def update_lyrics_data(self, data):
+        # Inicializa flag de ajuste manual se não existir
+        if not hasattr(self, '_user_adjusted_sync'):
+            self._user_adjusted_sync = False
+        # --- Salva índice/tempo da linha ativa antes do reload ---
+        if hasattr(self, 'parsed_lyrics') and self.parsed_lyrics and getattr(self, 'current_line_index', -1) >= 0:
+            self._last_line_index = self.current_line_index
+            self._last_line_time = self.parsed_lyrics[self.current_line_index][0]
+        else:
+            self._last_line_index = None
+            self._last_line_time = None
+
         progress_ms = data.get('progress', 0) + self.sync_offset
         new_parsed_lyrics = data.get('parsed', [])
         new_text = data.get('text', '')
         
+        # Reseta flag ao trocar de música (parsed_lyrics antigo vazio e novo não vazio)
+        if not getattr(self, 'parsed_lyrics', []) and new_parsed_lyrics:
+            self._user_adjusted_sync = False
+            import traceback
+            print(f"[OFFSET DEBUG] _user_adjusted_sync alterado para False em troca de música (parsed_lyrics reload)")
+            traceback.print_stack(limit=2)
+
         # Se não há letras sincronizadas, mostra o texto diretamente
         if not new_parsed_lyrics:
             if new_text == "Nenhuma música tocando..." and self.text_content == new_text:
@@ -211,6 +214,22 @@ class LyricsWindow(QtWidgets.QWidget):
 
         # Se há letras sincronizadas, atualiza a UI com a sincronização
         if self.parsed_lyrics != new_parsed_lyrics:
+            print("=== RELOAD DE LETRAS SINCRONIZADAS DETECTADO ===")
+            print(f"parsed_lyrics antigo: {[t for t, _ in getattr(self, 'parsed_lyrics', [])]}")
+            print(f"parsed_lyrics novo:   {[t for t, _ in new_parsed_lyrics]}")
+            # --- Ajuste automático do offset após reload para manter a linha ativa (busca pelo tempo mais próximo) ---
+            if not self._user_adjusted_sync and hasattr(self, '_last_line_time') and self._last_line_time is not None and new_parsed_lyrics:
+                print(f"Antes do ajuste: sync_offset={self.sync_offset}, last_line_time={self._last_line_time}")
+                tempos = [t for t, _ in new_parsed_lyrics]
+                closest_idx = min(range(len(tempos)), key=lambda i: abs(tempos[i] - self._last_line_time))
+                new_line_time = tempos[closest_idx]
+                print(f"Novo tempo encontrado na letra: {new_line_time}, progresso puro recebido: {data.get('progress', 0)}")
+                self.sync_offset += (new_line_time - data.get('progress', 0))
+                import traceback
+                print(f"[OFFSET DEBUG] sync_offset alterado para {self.sync_offset} em ajuste automático de linha")
+                traceback.print_stack(limit=2)
+                print(f"Depois do ajuste: sync_offset={self.sync_offset}")
+                progress_ms = data.get('progress', 0) + self.sync_offset
             self.parsed_lyrics = new_parsed_lyrics
             self.manual_scroll_offset = 0
             font = QFont('Arial', 22)
@@ -232,8 +251,11 @@ class LyricsWindow(QtWidgets.QWidget):
                     if progress_ms >= time and (i == len(self.parsed_lyrics)-1 or progress_ms < self.parsed_lyrics[i+1][0]):
                         new_current_line_index = i
                         break
-            # Debug: mostrar progresso e índice
-            print(f"progress_ms: {progress_ms}, current_line_index: {self.current_line_index} -> {new_current_line_index}")
+            # Logging detalhado para diagnóstico
+            current_line_text = self.parsed_lyrics[self.current_line_index][1] if 0 <= self.current_line_index < len(self.parsed_lyrics) else None
+            new_line_text = self.parsed_lyrics[new_current_line_index][1] if 0 <= new_current_line_index < len(self.parsed_lyrics) else None
+            print(f"[SYNC DEBUG] progress={data.get('progress', 0)}, sync_offset={self.sync_offset}, progress_ms={progress_ms}, _user_adjusted_sync={getattr(self, '_user_adjusted_sync', False)}")
+            print(f"[SYNC DEBUG] current_line_index: {self.current_line_index} ('{current_line_text}') -> {new_current_line_index} ('{new_line_text}')")
             if new_current_line_index != self.current_line_index:
                 self.current_line_index = new_current_line_index
                 self.user_has_scrolled = False  # Volta a centralizar ao mudar de verso

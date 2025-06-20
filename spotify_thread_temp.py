@@ -113,6 +113,7 @@ class SpotifyThread(QThread):
 
     def run(self):
         self.lyrics_data_ready.emit({'text': "Conectando ao Spotify...", 'parsed': [], 'progress': 0})
+        self._last_progress_ms = None
         
         BLACKLISTED_TITLES = [
             "[untitled]",
@@ -168,7 +169,15 @@ class SpotifyThread(QThread):
                     self.lyrics_data_ready.emit({'text': "Erro ao obter dados do Spotify", 'parsed': [], 'progress': 0})
                     time.sleep(1)
                     continue
-                
+
+                progress_ms = playback.get('progress_ms', 0)
+                # Log detalhado do progresso
+                if self._last_progress_ms is not None:
+                    print(f"[SPOTIFY DEBUG] progress_ms anterior: {self._last_progress_ms}, atual: {progress_ms}, diferença: {progress_ms - self._last_progress_ms} | Música: {playback['item']['name']} - {playback['item']['artists'][0]['name']}")
+                else:
+                    print(f"[SPOTIFY DEBUG] progress_ms inicial: {progress_ms} | Música: {playback['item']['name']} - {playback['item']['artists'][0]['name']}")
+                self._last_progress_ms = progress_ms
+
                 if not playback['is_playing'] or not playback.get('item'):
                     if self.current_track_id is not None:
                         self.lyrics_data_ready.emit({'text': "Nenhuma música tocando...", 'parsed': [], 'progress': 0})
@@ -186,6 +195,7 @@ class SpotifyThread(QThread):
                     song_title_original = playback['item']['name']
                     self.current_song_title = song_title_original
                     artist = self.current_artist
+                    print(f"[LYRICS FETCH DEBUG] Tocando agora: {song_title_original} - {artist}")
                     
                     if any(title.lower() in song_title_original.lower() for title in BLACKLISTED_TITLES):
                         self.parsed_lyrics = []
@@ -207,6 +217,7 @@ class SpotifyThread(QThread):
                     lyrics_found = False
                     
                     try:
+                        print(f"[LYRICS FETCH DEBUG] Buscando letra para: {song_title_original} - {artist}")
                         print(f"Buscando letras em SyncedLyrics para: {song_title_original} - {artist}")
                         lrc_lyrics = func_timeout(5, syncedlyrics.search, args=[f"{song_title_original} {artist}"])
                         print(f"Resultado SyncedLyrics (original): {bool(lrc_lyrics)}")
