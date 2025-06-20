@@ -7,7 +7,7 @@ import spotipy
 import lyricsgenius
 import syncedlyrics
 import config
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal
 from func_timeout import func_timeout, FunctionTimedOut
 
 def parse_lrc(lrc_text):
@@ -161,44 +161,24 @@ class SpotifyThread(QThread):
         self.lyrics_data_ready.emit({'text': "Nenhuma música tocando...", 'parsed': [], 'progress': 0})
         self.setup_genius()
         
-        last_track_id = None
-        manual_progress_ms = 0
-        last_real_progress_ms = 0
-        last_playback_time = time.time()
         while self.is_running:
-            print('[THREAD] Loop rodando...')
             try:
                 playback = self.sp.current_playback()
                 if not playback:
                     self.lyrics_data_ready.emit({'text': "Erro ao obter dados do Spotify", 'parsed': [], 'progress': 0})
                     time.sleep(1)
                     continue
+                
                 if not playback['is_playing'] or not playback.get('item'):
                     if self.current_track_id is not None:
                         self.lyrics_data_ready.emit({'text': "Nenhuma música tocando...", 'parsed': [], 'progress': 0})
                         self.current_track_id = None
                         self.parsed_lyrics = []
-                    manual_progress_ms = 0
-                    last_real_progress_ms = 0
-                    last_track_id = None
                     time.sleep(1)
                     continue
+                
                 track_id = playback['item']['id']
                 progress_ms = playback.get('progress_ms', 0)
-                # Se mudou de faixa, reseta o progresso manual
-                if track_id != last_track_id:
-                    manual_progress_ms = progress_ms
-                    last_real_progress_ms = progress_ms
-                    last_track_id = track_id
-                    last_playback_time = time.time()
-                else:
-                    # Se a API não atualiza, incrementa manualmente
-                    if progress_ms == last_real_progress_ms:
-                        manual_progress_ms += int((time.time() - last_playback_time) * 1000)
-                    else:
-                        manual_progress_ms = progress_ms
-                        last_real_progress_ms = progress_ms
-                    last_playback_time = time.time()
 
                 if track_id != self.current_track_id:
                     self.current_track_id = track_id
@@ -211,18 +191,18 @@ class SpotifyThread(QThread):
                         self.parsed_lyrics = []
                         self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original}"
                         lyrics_found = False
-                        self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
+                        self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
                         continue
 
                     if any(word.lower() in song_title_original.lower() for word in INSTRUMENTAL_WORDS):
                         self.parsed_lyrics = []
                         self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original}"
                         lyrics_found = False
-                        self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
+                        self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
                         continue
 
                     cleaned_title = clean_title(song_title_original)
-                    self.lyrics_data_ready.emit({'text': f"Buscando letra para:\n{song_title_original}...", 'parsed': [], 'progress': manual_progress_ms})
+                    self.lyrics_data_ready.emit({'text': f"Buscando letra para:\n{song_title_original}...", 'parsed': [], 'progress': progress_ms})
 
                     lyrics_found = False
                     
@@ -243,10 +223,9 @@ class SpotifyThread(QThread):
                             self.current_lyrics_text = "\n".join([line for _, line in self.parsed_lyrics])
                             lyrics_found = True
                             print(f"Letra encontrada via SyncedLyrics!")
-                            self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
+                            self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
                             continue
                         else:
-                            # Se não encontrou letras sincronizadas, tenta usar o texto puro
                             text_from_lrc = "".join([line for _, line in parsed_lrc])
                             text_only_from_lrc = re.sub(r'\[.*?\]|\(.*?\)', '', text_from_lrc).strip()
                             if len(text_only_from_lrc) > 30:
@@ -254,7 +233,7 @@ class SpotifyThread(QThread):
                                 self.current_lyrics_text = text_only_from_lrc
                                 lyrics_found = True
                                 print(f"Letra encontrada via SyncedLyrics!")
-                                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': [], 'progress': manual_progress_ms})
+                                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
                                 continue
                     except FunctionTimedOut:
                         print(f"Timeout na busca SyncedLyrics para: {song_title_original}")
@@ -293,7 +272,7 @@ class SpotifyThread(QThread):
                                         self.current_lyrics_text = lyrics_body
                                         lyrics_found = True
                                         print("Letra encontrada e validada!")
-                                        self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
+                                        self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
                                         continue
                             else:
                                 print("Nenhuma letra encontrada no Genius")
@@ -303,32 +282,19 @@ class SpotifyThread(QThread):
                         except Exception as e:
                             print(f"Erro na busca Genius: {e}")
 
-                    self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
+                    self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': progress_ms + 500})
 
                     if lyrics_found:
                         continue
 
-                # --- NOVA LÓGICA DE SINCRONIZAÇÃO AUTOMÁTICA ---
-                # Se já temos letras sincronizadas para a faixa atual, continue emitindo o progresso atualizado
-                if self.parsed_lyrics:
-                    self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
-                    time.sleep(0.5)
+                    time.sleep(1)
                     continue
-                # ------------------------------------------------
-
-                # Se não há letras sincronizadas, apenas aguarde
-                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
-                time.sleep(1)
-                continue
 
             except spotipy.exceptions.SpotifyException as e:
-                print(f'[THREAD] SpotifyException: {e}')
                 self.lyrics_data_ready.emit({'text': "Sessão do Spotify expirada.\nPor favor, reinicie o aplicativo.", 'parsed': [], 'progress': 0})
-                time.sleep(5)
-                continue
+                break
             except Exception as e:
-                print(f'[THREAD] Exception inesperada: {e}')
                 self.lyrics_data_ready.emit({'text': "Erro ao buscar dados. Reconectando...", 'parsed': [], 'progress': 0})
                 self.current_track_id = None
-                time.sleep(5)
-                continue
+                time.sleep(10)
+                break

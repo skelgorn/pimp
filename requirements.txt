@@ -7,3 +7,4 @@ syncedlyrics
 requests
 colorgram.py
 python-dotenv
+func-timeout

@@ -14,11 +14,12 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={pf}\{#MyAppName}
 CloseApplications=force
-DisableProgramGroupPage=yes
+DisableProgramGroupPage=no
+DefaultGroupName={#MyAppName}
 
-OutputBaseFilename=LetrasPIP_setup
+OutputBaseFilename=LetrasPIP_Installer
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
