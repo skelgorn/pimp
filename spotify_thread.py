@@ -40,7 +40,19 @@ class SpotifyThread(QThread):
         self.sync_offset = 0
         self.current_artist = None
         self.current_song_title = None
+        self.parent_window = parent
 
+    def log(self, message):
+        """Envia log para a janela principal se disponível"""
+        if hasattr(self.parent_window, 'log_window'):
+            self.parent_window.log_window.add_log(f"[THREAD] {message}")
+        print(f"[THREAD] {message}")
+
+    def get_cached_offset(self, artist, title):
+        """Obtém o offset salvo para uma faixa específica"""
+        if hasattr(self.parent_window, 'get_cached_offset'):
+            return self.parent_window.get_cached_offset(artist, title)
+        return 0
 
     def force_genius_search(self):
         if not self.genius or not self.current_track_id:
@@ -202,6 +214,13 @@ class SpotifyThread(QThread):
                     self.current_song_title = song_title_original
                     artist = self.current_artist
                     
+                    # Carrega offset salvo para esta faixa
+                    cached_offset = self.get_cached_offset(artist, song_title_original)
+                    if cached_offset != 0:
+                        self.log(f"Offset carregado para '{artist} - {song_title_original}': {cached_offset}ms")
+                        # Emite um sinal para atualizar o offset na janela principal
+                        self.lyrics_data_ready.emit({'text': f"Carregando offset salvo...", 'parsed': [], 'progress': manual_progress_ms, 'cached_offset': cached_offset})
+                    
                     if any(title.lower() in song_title_original.lower() for title in BLACKLISTED_TITLES):
                         self.parsed_lyrics = []
                         self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original}"
@@ -217,86 +236,100 @@ class SpotifyThread(QThread):
                         continue
 
                     cleaned_title = clean_title(song_title_original)
+                    self.log(f"Buscando letra para: {song_title_original} - {artist}")
                     self.lyrics_data_ready.emit({'text': f"Buscando letra para:\n{song_title_original}...", 'parsed': [], 'progress': manual_progress_ms})
 
                     lyrics_found = False
                     
                     try:
-                        print(f"Buscando letras em SyncedLyrics para: {song_title_original} - {artist}")
+                        self.log(f"Buscando letras em SyncedLyrics para: {song_title_original} - {artist}")
                         lrc_lyrics = func_timeout(5, syncedlyrics.search, args=[f"{song_title_original} {artist}"])
-                        print(f"Resultado SyncedLyrics (original): {bool(lrc_lyrics)}")
+                        self.log(f"Resultado SyncedLyrics (original): {bool(lrc_lyrics)}")
                         
                         if not lrc_lyrics:
-                            print(f"Tentando novamente com título limpo: {cleaned_title}")
+                            self.log(f"Tentando novamente com título limpo: {cleaned_title}")
                             lrc_lyrics = func_timeout(5, syncedlyrics.search, args=[f"{cleaned_title} {artist}"])
                         
                         parsed_lrc = parse_lrc(lrc_lyrics) if lrc_lyrics else []
-                        print(f"Letras parseadas: {len(parsed_lrc)}")
-                        
+                        self.log(f"Letras parseadas: {len(parsed_lrc)}")
+                        # Nova regra: se só tem uma linha e é vocalize/curta, tratar como instrumental
+                        if len(parsed_lrc) == 1:
+                            only_line = parsed_lrc[0][1].strip()
+                            vocalize_patterns = [r'^([dlh ]*-?)+$', r'^(la|de|doo|dum|na|oh|ah|ba|pa|da|la)+[ .,!-]*$', r'^\W*$']
+                            is_vocalize = any(re.match(pat, only_line.lower()) for pat in vocalize_patterns)
+                            if len(only_line) < 15 or is_vocalize:
+                                self.log("Letra sincronizada considerada instrumental por ser muito curta ou vocalize.")
+                                self.parsed_lyrics = []
+                                self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original} (Instrumental)"
+                                lyrics_found = False
+                                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': [], 'progress': manual_progress_ms})
+                                continue
                         if parsed_lrc:
                             self.parsed_lyrics = parsed_lrc
                             self.current_lyrics_text = "\n".join([line for _, line in self.parsed_lyrics])
                             lyrics_found = True
-                            print(f"Letra encontrada via SyncedLyrics!")
+                            self.log(f"Letra encontrada via SyncedLyrics!")
                             self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
                             continue
-                        else:
-                            # Se não encontrou letras sincronizadas, tenta usar o texto puro
-                            text_from_lrc = "".join([line for _, line in parsed_lrc])
-                            text_only_from_lrc = re.sub(r'\[.*?\]|\(.*?\)', '', text_from_lrc).strip()
-                            if len(text_only_from_lrc) > 30:
-                                self.parsed_lyrics = []
-                                self.current_lyrics_text = text_only_from_lrc
-                                lyrics_found = True
-                                print(f"Letra encontrada via SyncedLyrics!")
-                                self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': [], 'progress': manual_progress_ms})
-                                continue
                     except FunctionTimedOut:
-                        print(f"Timeout na busca SyncedLyrics para: {song_title_original}")
+                        self.log(f"Timeout na busca SyncedLyrics para: {song_title_original}")
                     except Exception as e:
-                        print(f"Erro na busca SyncedLyrics: {e}")
+                        self.log(f"Erro na busca SyncedLyrics: {e}")
                         pass
 
                     if not lyrics_found and self.genius:
                         try:
-                            print(f"Buscando letras em Genius para: {song_title_original} - {artist}")
+                            self.log(f"Buscando letras em Genius para: {song_title_original} - {artist}")
                             song = func_timeout(5, self.genius.search_song, args=[song_title_original, artist])
-                            print(f"Resultado Genius (original): {bool(song)}")
+                            self.log(f"Resultado Genius (original): {bool(song)}")
                             
                             if not song or not song.lyrics:
-                                print(f"Tentando novamente com título limpo: {cleaned_title}")
+                                self.log(f"Tentando novamente com título limpo: {cleaned_title}")
                                 song = func_timeout(5, self.genius.search_song, args=[cleaned_title, artist])
-                                print(f"Resultado Genius (limpo): {bool(song)}")
+                                self.log(f"Resultado Genius (limpo): {bool(song)}")
                             
                             self.parsed_lyrics = []
                             if song and song.lyrics:
                                 lyrics_lower = song.lyrics.lower()
-                                print(f"Letra encontrada no Genius!")
+                                self.log(f"Letra encontrada no Genius!")
                                 
                                 if "this song is an instrumental" in lyrics_lower or "lyrics for this song have yet to be released" in lyrics_lower:
-                                    print("Letra é instrumental ou não lançada")
+                                    self.log("Letra é instrumental ou não lançada")
                                     self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original}"
                                 else:
-                                    lyrics_body = re.sub(r'^(.*Lyrics)\n', '', song.lyrics, 1).strip()
+                                    # Limpeza robusta para remover cabeçalhos e descrições do Genius
+                                    # 1. Remove o cabeçalho "xxx Lyrics"
+                                    lyrics_body = re.sub(r'^.*?lyrics\n?', '', song.lyrics, 1, flags=re.IGNORECASE | re.DOTALL)
+                                    # 2. Encontra a primeira marca de seção (ex: [Verse 1]) e remove tudo antes dela
+                                    first_section_match = re.search(r'\[(.*?)\]', lyrics_body)
+                                    if first_section_match:
+                                        lyrics_body = lyrics_body[first_section_match.start():]
+                                    
+                                    # 3. Remove a contagem de "Embed" no final
                                     lyrics_body = re.sub(r'\d*Embed$', '', lyrics_body).strip()
+                                    
+                                    # Validação final para garantir que temos uma letra
                                     lyrics_text_only = re.sub(r'\[.*?\]|\(.*?\)', '', lyrics_body).strip()
-                                    print(f"Texto da letra (sem tags): {lyrics_text_only[:100]}...")
-                                    if len(lyrics_text_only) < 50:
-                                        print("Letra muito curta")
-                                        self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original}"
-                                    else:
+                                    self.log(f"Texto da letra (sem tags): {lyrics_text_only[:100]}...")
+                                    # Nova regra: letra muito curta ou só vocalize = instrumental
+                                    vocalize_patterns = [r'^([dlh ]*-?)+$', r'^(la|de|doo|dum|na|oh|ah|ba|pa|da|la)+[ .,!-]*$', r'^\W*$']
+                                    is_vocalize = any(re.match(pat, lyrics_text_only.lower()) for pat in vocalize_patterns)
+                                    if len(lyrics_text_only) < 15 or is_vocalize:
+                                        self.log("Letra considerada instrumental por ser muito curta ou vocalize.")
+                                        self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original} (Instrumental)"
+                                    elif len(lyrics_text_only) < 50:
                                         self.current_lyrics_text = lyrics_body
                                         lyrics_found = True
-                                        print("Letra encontrada e validada!")
+                                        self.log("Letra encontrada e validada!")
                                         self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
                                         continue
                             else:
-                                print("Nenhuma letra encontrada no Genius")
+                                self.log("Nenhuma letra encontrada no Genius")
                                 self.current_lyrics_text = f"Letra não encontrada para:\n{song_title_original}"
                         except FunctionTimedOut:
-                            print("Timeout na busca Genius")
+                            self.log("Timeout na busca Genius")
                         except Exception as e:
-                            print(f"Erro na busca Genius: {e}")
+                            self.log(f"Erro na busca Genius: {e}")
 
                     self.lyrics_data_ready.emit({'text': self.current_lyrics_text, 'parsed': self.parsed_lyrics, 'progress': manual_progress_ms})
 
