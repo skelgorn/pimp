@@ -6,34 +6,18 @@ from PyQt6.QtCore import QTimer
 import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 import config
+import srt
 
 
 def parse_srt(srt_text):
-    if not srt_text:
-        return []
     parsed_lyrics = []
-    # Extrai blocos padrão SRT
-    srt_block_regex = re.compile(r"(\d+)\s*\n([\d:,]+)\s+-->\s+([\d:,]+)\s*\n([\s\S]*?)(?=\n\d+\n|\Z)", re.MULTILINE)
-    for match in srt_block_regex.finditer(srt_text):
-        idx, start, end, text = match.groups()
-        h, m, s_ms = start.split(":")
-        s, ms = s_ms.split(",")
-        time_ms = int(h)*3600000 + int(m)*60000 + int(s)*1000 + int(ms)
-        clean_text = text.strip().replace('\n', ' ')
-        # Ignora blocos sem texto ou só com número/whitespace
+    for sub in srt.parse(srt_text):
+        start_ms = int(sub.start.total_seconds() * 1000)
+        end_ms = int(sub.end.total_seconds() * 1000)
+        clean_text = sub.content.strip().replace('\n', ' ')
         if clean_text and not clean_text.isdigit():
-            parsed_lyrics.append((time_ms, clean_text))
-    # Extrai linhas inline (número tempo --> tempo texto)
-    srt_inline_regex = re.compile(r"(\d+)\s+([\d:,]+)\s+-->\s+([\d:,]+)\s+(.*)")
-    for match in srt_inline_regex.finditer(srt_text):
-        idx, start, end, text = match.groups()
-        h, m, s_ms = start.split(":")
-        s, ms = s_ms.split(",")
-        time_ms = int(h)*3600000 + int(m)*60000 + int(s)*1000 + int(ms)
-        clean_text = text.strip()
-        if clean_text and not clean_text.isdigit():
-            parsed_lyrics.append((time_ms, clean_text))
-    return sorted(parsed_lyrics, key=lambda x: x[0])
+            parsed_lyrics.append((start_ms, end_ms, clean_text))
+    return parsed_lyrics
 
 
 class SRTLyricsWindow(QWidget):
@@ -71,16 +55,21 @@ class SRTLyricsWindow(QWidget):
         progress_ms = self.get_spotify_progress()
         if progress_ms is None:
             self.label.setText("Aguardando Spotify...")
+            print("[DEBUG] Aguardando Spotify...")
             return
-        # Avança para o verso correto
-        idx = 0
-        for i, (t, _) in enumerate(self.parsed_lyrics):
-            if progress_ms >= t:
-                idx = i
-            else:
+
+        # Lista só com blocos que têm texto
+        text_blocks = [(start, end, text) for start, end, text in self.parsed_lyrics if text.strip()]
+        current_text = ""
+        for i, (start, end, text) in enumerate(text_blocks):
+            # Se estamos antes do início do primeiro verso, não mostra nada
+            if progress_ms < start:
                 break
-        self.current_line_index = idx
-        self.label.setText(self.parsed_lyrics[self.current_line_index][1])
+            # Se estamos entre este verso e o próximo, ou depois do último, mostra este verso
+            if i == len(text_blocks) - 1 or progress_ms < text_blocks[i + 1][0]:
+                current_text = text
+        print(f"[DEBUG] Exibindo: '{current_text}'\n")
+        self.label.setText(current_text)
 
 
 def main():
