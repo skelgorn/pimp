@@ -159,37 +159,23 @@ class UnifiedLyricsWindow(QWidget):
             if self.label.text() != new_text:
                 self.label.setText(new_text)
             return
-        # Aplique o offset ANTES de comparar com os blocos
         progress_with_offset = progress_ms + self.offset
         print(f'[DEBUG] Progresso: {progress_ms}ms + offset {self.offset}ms = {progress_with_offset}ms')
         current_text = ""
         sincronizada = True
-        last_verse = ""
-        selected_block_index = -1
-        tolerance_ms = 1200  # tolerância para segurar o verso após instrumental (1.2s)
+        # Lógica clássica: seleciona o bloco cujo start <= progresso < end
         for i, (start, end, text) in enumerate(self.parsed_lyrics):
-            # O offset já foi aplicado, então toda a lógica usa progress_with_offset
-            if progress_with_offset < start:
+            if start <= progress_with_offset < end:
+                current_text = text
+                print(f'[DEBUG] Bloco selecionado ({i}): "{text[:50]}..."')
                 break
-            if i == len(self.parsed_lyrics) - 1 or progress_with_offset < self.parsed_lyrics[i + 1][0]:
-                selected_block_index = i
-                # Se o bloco atual é '[Instrumental]', mantenha o último verso não instrumental
-                if text == "[Instrumental]":
-                    current_text = last_verse
-                    print(f'[DEBUG] Bloco instrumental selecionado ({i}), mantendo último verso: "{last_verse[:50]}..."')
-                else:
-                    # Se o próximo bloco não é instrumental, só troca se estiver dentro da tolerância
-                    if i+1 < len(self.parsed_lyrics) and self.parsed_lyrics[i+1][0] - progress_with_offset > tolerance_ms and self.parsed_lyrics[i+1][2] != "[Instrumental]":
-                        # Segura o verso atual
-                        current_text = text
-                        print(f'[DEBUG] Segurando verso ({i}): "{text[:50]}..." até {self.parsed_lyrics[i+1][0]}ms')
-                    else:
-                        current_text = text
-                        last_verse = text
-                        print(f'[DEBUG] Bloco selecionado ({i}): "{text[:50]}..."')
-                break
-        if selected_block_index == -1:
-            print(f'[DEBUG] Nenhum bloco selecionado para progresso {progress_with_offset}ms')
+        else:
+            # Se não caiu em nenhum bloco, mostra o último verso anterior
+            for i in reversed(range(len(self.parsed_lyrics))):
+                if self.parsed_lyrics[i][0] <= progress_with_offset:
+                    current_text = self.parsed_lyrics[i][2]
+                    print(f'[DEBUG] Último verso anterior ({i}): "{current_text[:50]}..."')
+                    break
         # Detectar se a letra é sincronizada (tem timestamps diferentes de 0)
         if len(self.parsed_lyrics) == 1 and self.parsed_lyrics[0][0] == 0 and self.parsed_lyrics[0][1] > 9000000:
             sincronizada = False
