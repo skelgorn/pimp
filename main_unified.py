@@ -9,6 +9,23 @@ import lyricsgenius
 import syncedlyrics
 
 # --- Parsers Unificados ---
+def needs_interpolation(parsed_lyrics, max_block_ms=4000):
+    return any((end - start) > max_block_ms for start, end, text in parsed_lyrics)
+
+def interpolate_long_blocks(parsed_lyrics, max_block_ms=4000, interp_ms=1000):
+    new_lyrics = []
+    for start, end, text in parsed_lyrics:
+        duration = end - start
+        if duration > max_block_ms:
+            t = start
+            while t + interp_ms < end:
+                new_lyrics.append((t, t + interp_ms, text))
+                t += interp_ms
+            new_lyrics.append((t, end, text))
+        else:
+            new_lyrics.append((start, end, text))
+    return new_lyrics
+
 def parse_synced_lyrics(synced_result):
     if isinstance(synced_result, str) and '[' in synced_result:
         lrc_line_regex = re.compile(r'\[(\d{2}):(\d{2})\.(\d{2,3})\]\s*(.*)')
@@ -33,7 +50,11 @@ def parse_synced_lyrics(synced_result):
             if i+1 < len(times) and times[i+1] - end > 5000:
                 print(f'[DEBUG] Bloco de instrumental inserido: {end} -> {times[i+1]}')
                 parsed_blocks.append((end, times[i+1], "[Instrumental]"))
-        return parsed_blocks
+        parsed = parsed_blocks
+        if needs_interpolation(parsed):
+            print('[DEBUG] Interpolando blocos longos para melhor efeito do offset.')
+            parsed = interpolate_long_blocks(parsed)
+        return parsed
     elif isinstance(synced_result, list) and all(isinstance(line, dict) for line in synced_result):
         parsed = []
         for i, line in enumerate(synced_result):
@@ -46,8 +67,22 @@ def parse_synced_lyrics(synced_result):
                 if i+1 < len(synced_result) and int(synced_result[i+1]['time']) - end > 5000:
                     print(f'[DEBUG] Bloco de instrumental inserido: {end} -> {int(synced_result[i+1]["time"])}')
                     parsed.append((end, int(synced_result[i+1]['time']), "[Instrumental]"))
+        parsed = parsed
+        if needs_interpolation(parsed):
+            print('[DEBUG] Interpolando blocos longos para melhor efeito do offset.')
+            parsed = interpolate_long_blocks(parsed)
         return parsed
     return []
+
+def clean_lyrics_text(lyrics):
+    # Remove apenas cabeçalhos/metadados comuns do Genius
+    lines = lyrics.splitlines()
+    cleaned = []
+    for line in lines:
+        if any(word in line.lower() for word in ["contributor", "lyrics", "embed"]):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
 
 # --- Janela Unificada ---
 class UnifiedLyricsWindow(QWidget):
@@ -121,7 +156,8 @@ class UnifiedLyricsWindow(QWidget):
                     parsed_lyrics = []
                 if not parsed_lyrics:
                     print('[DEBUG] Não encontrou letra sincronizada, usando letra simples.')
-                    parsed_lyrics = [(0, 9999999, genius_result.lyrics)]
+                    lyrics_text = clean_lyrics_text(genius_result.lyrics)
+                    parsed_lyrics = [(0, 9999999, lyrics_text)]
             else:
                 print('[DEBUG] Letra não encontrada no Genius.')
                 parsed_lyrics = [(0, 9999999, "Letra não encontrada...")]
@@ -133,7 +169,6 @@ class UnifiedLyricsWindow(QWidget):
 
     def update_lyrics(self):
         progress_ms, track_id, track_name, artist_name, is_playing = self.get_spotify_progress()
-        print(f'[DEBUG] is_playing: {is_playing}')
         if track_id is None:
             new_text = f"Aguardando Spotify...\nOffset: {self.offset/1000:.2f}s"
             if self.label.text() != new_text:
@@ -145,38 +180,29 @@ class UnifiedLyricsWindow(QWidget):
                 self.label.setText(new_text)
             return
         if self.track_id != track_id:
-            print(f'[DEBUG] Mudou de faixa: {self.track_id} -> {track_id}')
-            # Mudou de faixa, buscar nova letra
             self.track_id = track_id
             self.parsed_lyrics = self.fetch_lyrics(track_name, artist_name)
-            print(f'[DEBUG] Blocos de letra criados: {len(self.parsed_lyrics)}')
-            for i, (start, end, text) in enumerate(self.parsed_lyrics[:5]):  # Mostra os primeiros 5 blocos
-                print(f'[DEBUG] Bloco {i}: {start}ms -> {end}ms: "{text[:50]}..."')
             self.current_line_index = 0
-            self.offset = 0  # Resetar offset ao trocar de faixa
+            self.offset = 0
         if progress_ms is None:
             new_text = f"Aguardando Spotify...\nOffset: {self.offset/1000:.2f}s"
             if self.label.text() != new_text:
                 self.label.setText(new_text)
             return
         progress_with_offset = progress_ms + self.offset
-        print(f'[DEBUG] Progresso: {progress_ms}ms + offset {self.offset}ms = {progress_with_offset}ms')
         current_text = ""
         sincronizada = True
-        # Lógica clássica: seleciona o bloco cujo start <= progresso < end
+        # Sempre mostrar o último verso anterior, mesmo durante buracos
         for i, (start, end, text) in enumerate(self.parsed_lyrics):
             if start <= progress_with_offset < end:
                 current_text = text
-                print(f'[DEBUG] Bloco selecionado ({i}): "{text[:50]}..."')
                 break
         else:
             # Se não caiu em nenhum bloco, mostra o último verso anterior
             for i in reversed(range(len(self.parsed_lyrics))):
                 if self.parsed_lyrics[i][0] <= progress_with_offset:
                     current_text = self.parsed_lyrics[i][2]
-                    print(f'[DEBUG] Último verso anterior ({i}): "{current_text[:50]}..."')
                     break
-        # Detectar se a letra é sincronizada (tem timestamps diferentes de 0)
         if len(self.parsed_lyrics) == 1 and self.parsed_lyrics[0][0] == 0 and self.parsed_lyrics[0][1] > 9000000:
             sincronizada = False
         if sincronizada:
