@@ -209,8 +209,54 @@ class UnifiedLyricsWindow(QWidget):
             new_text = f"{current_text}\n\nOffset: {self.offset/1000:.2f}s"
         else:
             new_text = f"{current_text}\n\nLetra não sincronizada — ajuste de offset indisponível."
-        if self.label.text() != new_text:
-            self.label.setText(new_text)
+        # --- NOVO REDESIGN ---
+        # Descobrir o índice do verso atual
+        idx_atual = None
+        progress = progress_with_offset
+        for i, (start, end, text) in enumerate(self.parsed_lyrics):
+            if start <= progress < end:
+                idx_atual = i
+                break
+        if idx_atual is None:
+            # Não está em nenhum bloco, então pega o último bloco cujo start <= progress
+            for i in reversed(range(len(self.parsed_lyrics))):
+                if self.parsed_lyrics[i][0] <= progress:
+                    idx_atual = i
+                    break
+        if idx_atual is None:
+            idx_atual = 0
+        # Montar lista de versos para exibir (até 2 acima, atual, até 2 abaixo), sem repetir índice
+        total = len(self.parsed_lyrics)
+        janela = []
+        # Calcula início/fim da janela sem sair dos limites
+        start = max(0, idx_atual - 2)
+        end = min(total, idx_atual + 3)
+        # Se estiver no topo, expande para baixo para garantir até 5 versos
+        while end - start < 5 and end < total:
+            end += 1
+        # Se estiver no final, expande para cima
+        while end - start < 5 and start > 0:
+            start -= 1
+        last_text = None
+        for i in range(start, end):
+            verso = self.parsed_lyrics[i][2]
+            if verso == last_text:
+                continue  # pula repetições consecutivas
+            last_text = verso
+            if i == idx_atual:
+                # Verso atual: destaque
+                janela.append(f'<span style="font-size:28px; font-weight:bold; color:white;">{verso}</span>')
+            else:
+                # Versos vizinhos: translúcido
+                janela.append(f'<span style="font-size:18px; color:#FFFFFF88;">{verso}</span>')
+        html = '<div style="text-align:center;">' + '<br>'.join(janela) + '</div>'
+        # Adiciona info do offset
+        html += f'<div style="font-size:12px; color:#cccccc; margin-top:10px;">Offset: {self.offset/1000:.2f}s</div>'
+        # Aplica ao label
+        self.label.setText(html)
+        self.label.setStyleSheet("background: transparent; border: none;")
+        self.setStyleSheet("background: transparent;")
+
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Left:
