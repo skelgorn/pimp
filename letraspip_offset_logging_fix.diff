@@ -1,0 +1,137 @@
+
+diff --git a/user_logger.py b/user_logger.py
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/user_logger.py
+@@
++# user_logger.py
++# Logger separado para ações do usuário no LetrasPIP
++# Parte do plano de correção para problemas de offset e rastreio de interações.
++
++import logging
++import os
++
++def _ensure_dir(path):
++    d = os.path.dirname(path)
++    if d and not os.path.exists(d):
++        os.makedirs(d, exist_ok=True)
++
++log_path = os.path.join(os.getcwd(), "letraspip_usuario.log")
++_ensure_dir(log_path)
++
++user_logger = logging.getLogger("letraspip.usuario")
++user_logger.setLevel(logging.DEBUG)
++
++# Evita múltiplos handlers em execuções repetidas
++if not user_logger.handlers:
++    fh = logging.FileHandler(log_path, encoding="utf-8")
++    formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
++    fh.setFormatter(formatter)
++    user_logger.addHandler(fh)
++
++def log_usuario_interacao(msg):
++    # Grava uma mensagem no log separado de interações do usuário
++    try:
++        user_logger.info(msg)
++    except Exception:
++        logging.getLogger().exception("Falha ao gravar em letraspip_usuario.log")
+diff --git a/offset_controller.py b/offset_controller.py
+new file mode 100644
+index 0000000..2222222
+--- /dev/null
++++ b/offset_controller.py
+@@
++# offset_controller.py
++# Controlador central do offset do LetrasPIP
++# Centraliza leitura/escrita e aplica bloqueio temporário contra sobrescrita indevida.
++
++import threading
++import traceback
++import logging
++from user_logger import log_usuario_interacao
++
++class OffsetController:
++    def __init__(self, initial=0):
++        self._value = initial
++        self._user_lock = False
++        self._lock_timer = None
++        self._lock = threading.Lock()
++
++    def set_sync_offset(self, value, *, user_action=False, source=None):
++        with self._lock:
++            # Se bloqueado por ação do usuário e não for ação do usuário, ignora
++            if self._user_lock and not user_action:
++                log_usuario_interacao(f"Bloqueado: tentativa de set_sync_offset({value}) de {source} ignorada por user_lock")
++                return False
++
++            prev = self._value
++            self._value = value
++
++            # Se ação do usuário, ativa bloqueio temporário
++            if user_action:
++                self._user_lock = True
++                if self._lock_timer:
++                    self._lock_timer.cancel()
++                self._lock_timer = threading.Timer(2.5, self._release_user_lock)
++                self._lock_timer.daemon = True
++                self._lock_timer.start()
++
++            # Log contextual com stack curta
++            stack = "".join(traceback.format_stack(limit=5))
++            log_usuario_interacao(f"set_sync_offset: {prev} -> {self._value} (user_action={user_action}, source={source})\n{stack}")
++
++            try:
++                self._on_offset_changed(self._value)
++            except Exception:
++                logging.getLogger().exception("Erro ao notificar mudança de offset na UI")
++
++            return True
++
++    def _release_user_lock(self):
++        with self._lock:
++            self._user_lock = False
++            self._lock_timer = None
++            log_usuario_interacao("user_lock liberado automaticamente")
++
++    def get_sync_offset(self):
++        with self._lock:
++            return self._value
++
++    def _on_offset_changed(self, value):
++        # Aqui você deve integrar a atualização visual e persistência.
++        # Exemplo:
++        # self.ui.update_sync_label(value)
++        # cache.save_offset(value)
++        pass
+diff --git a/README_OFFSET_FIX.txt b/README_OFFSET_FIX.txt
+new file mode 100644
+index 0000000..3333333
+--- /dev/null
++++ b/README_OFFSET_FIX.txt
+@@
++INSTRUÇÕES DE INTEGRAÇÃO DO OFFSET CONTROLLER E LOGGER DE USUÁRIO
++
++1. Importar no código principal:
++   from offset_controller import OffsetController
++   offset_controller = OffsetController(initial=0)
++
++2. Substituir TODAS as atribuições diretas do offset:
++   Antes:
++       self.sync_offset = 0
++   Depois:
++       offset_controller.set_sync_offset(0, user_action=True, source="UI-reset")
++
++3. Para ajustes manuais (increase/decrease):
++       offset_controller.set_sync_offset(novo_valor, user_action=True, source="UI-ajuste")
++
++4. Para atualizações vindas do SpotifyThread:
++       offset_controller.set_sync_offset(valor_do_payload, user_action=False, source="SpotifyThread")
++
++5. Conferir que o arquivo letraspip_usuario.log é criado e recebe eventos.
++
++6. Adicionar feedback visual (snackbar/label) sempre que user_action=True.
++
++7. Executar testes automáticos para validar bloqueio temporário contra sobrescrita.
++
++Este arquivo faz parte do patch para corrigir problemas de offset e logging no LetrasPIP.
