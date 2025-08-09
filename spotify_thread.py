@@ -227,14 +227,20 @@ class SpotifyThread(QThread):
 
                 current_track_id = track['id']
                 current_progress = current_playback.get('progress_ms', 0)
+                current_artist = ', '.join(artist['name'] for artist in track['artists'])
+                current_title = track['name']
                 
                 # Se mudou de música, busca letra nova
                 if current_track_id != self.last_track_id:
-                    self.log(f"[THREAD] Buscando letra para: {track['name']} - {', '.join(artist['name'] for artist in track['artists'])}")
+                    self.log(f"[THREAD] Buscando letra para: {current_title} - {current_artist}")
+                    
+                    # Obtém o offset cacheado para a nova faixa
+                    self.cached_offset = self.get_cached_offset(current_artist, current_title)
+                    self.log(f"[THREAD] Offset cacheado para nova faixa: {self.cached_offset}ms")
                     
                     # Busca no Genius
-                    self.log(f"[THREAD] Buscando letras em Genius para: {track['name']} - {', '.join(artist['name'] for artist in track['artists'])}")
-                    genius_result = self.genius_client.search_song(track['name'], ', '.join(artist['name'] for artist in track['artists']))
+                    self.log(f"[THREAD] Buscando letras em Genius para: {current_title} - {current_artist}")
+                    genius_result = self.genius_client.search_song(current_title, current_artist)
                     self.log(f"[THREAD] Resultado Genius (original): {genius_result is not None}")
                     
                     if genius_result:
@@ -243,8 +249,8 @@ class SpotifyThread(QThread):
                         
                         # Busca letra sincronizada
                         try:
-                            self.log(f"[THREAD] Buscando letras em SyncedLyrics para: {track['name']} - {', '.join(artist['name'] for artist in track['artists'])}")
-                            synced_result = self.synced_lyrics_client.search(f"{track['name']} {', '.join(artist['name'] for artist in track['artists'])}")
+                            self.log(f"[THREAD] Buscando letras em SyncedLyrics para: {current_title} - {current_artist}")
+                            synced_result = self.synced_lyrics_client.search(f"{current_title} {current_artist}")
                             self.log(f"[THREAD] Resultado SyncedLyrics (original): {synced_result is not None}")
                         except Exception as sync_exc:
                             import traceback, io
@@ -262,13 +268,12 @@ class SpotifyThread(QThread):
                                     first_block = parsed_lyrics[0]
                                     last_block = parsed_lyrics[-1]
                                     self.log(f"[THREAD] Primeiro bloco: {first_block[0]}ms -> {first_block[1]}ms")
-                                    self.log(f"[THREAD] Último bloco: {last_block[0]}ms -> {last_block[1]}ms")
-                                
+                                    self.log(f"[THREAD] Último bloco: {last_block[0]}ms -> {last_block[1]}ms")                                
                                 self.lyrics_data_ready.emit({
                                     'text': genius_result.lyrics,
                                     'parsed': parsed_lyrics,
                                     'progress': current_progress,
-                                    'cached_offset': self.cached_offset
+                                    'cached_offset': self.cached_offset  # Enviar apenas no início de uma nova faixa
                                 })
                             else:
                                 self.log("[THREAD] Nenhum bloco sincronizado válido encontrado")
@@ -276,7 +281,7 @@ class SpotifyThread(QThread):
                                     'text': genius_result.lyrics,
                                     'parsed': [],
                                     'progress': current_progress,
-                                    'cached_offset': self.cached_offset
+                                    'cached_offset': self.cached_offset  # Enviar apenas no início de uma nova faixa
                                 })
                         except Exception as e:
                             self.log(f"[THREAD] Erro ao processar SyncedLyrics: {e}")
@@ -284,22 +289,21 @@ class SpotifyThread(QThread):
                                 'text': genius_result.lyrics,
                                 'parsed': [],
                                 'progress': current_progress,
-                                'cached_offset': self.cached_offset
+                                'cached_offset': self.cached_offset  # Enviar apenas no início de uma nova faixa
                             })
                     else:
                         self.lyrics_data_ready.emit({
                             'text': "Letra não encontrada...",
                             'parsed': [],
                             'progress': current_progress,
-                            'cached_offset': self.cached_offset
+                            'cached_offset': self.cached_offset  # Enviar apenas no início de uma nova faixa
                         })
                     
                     self.last_track_id = current_track_id
                 else:
-                    # Apenas atualiza o progresso
+                    # Apenas atualiza o progresso (sem enviar cached_offset)
                     self.lyrics_data_ready.emit({
-                        'progress': current_progress,
-                        'cached_offset': self.cached_offset
+                        'progress': current_progress
                     })
                 
                 time.sleep(0.1)  # Reduz intervalo para melhor sincronização

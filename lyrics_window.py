@@ -5,7 +5,7 @@ import os
 import winreg
 import json
 from PyQt6 import QtWidgets, QtCore, QtGui
-from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QTimer
+from PyQt6.QtCore import Qt, QPoint, pyqtSlot, QTimer, QRect
 from PyQt6.QtWidgets import (QWidget, QSystemTrayIcon, 
                                QMenu, QApplication, QTextEdit, QVBoxLayout, QHBoxLayout, QPushButton, QLabel)
 from PyQt6.QtGui import (QFont, QColor, QWheelEvent, QMouseEvent, QPainter, 
@@ -228,8 +228,8 @@ class LyricsWindow(QtWidgets.QWidget):
         self.setWindowIcon(QIcon(resource_path('icon.ico')))
         self.setWindowTitle('Letras PIP Spotify')
         self.setGeometry(100, 100, 400, 250)
-        # Remover temporariamente FramelessWindowHint para debug de exibição
-        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
+        # Ativar fundo transparente e modo frameless
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         # Centralizar e garantir exibição
@@ -241,11 +241,13 @@ class LyricsWindow(QtWidgets.QWidget):
 
 
     def increase_sync(self):
+        print(f"[DEBUG] increase_sync chamado - offset atual: {self.sync_offset}")
         self.sync_offset += 500
         self.log_window.add_log(f"sync_offset alterado para {self.sync_offset} em increase_sync")
         self._user_adjusted_sync = True
         self.log_window.add_log(f"_user_adjusted_sync alterado para True em increase_sync")
         self.log_window.add_log(f"Ajuste manual: increase_sync: sync_offset={self.sync_offset}")
+        print(f"[DEBUG] increase_sync finalizado - novo offset: {self.sync_offset}")
         
         # Salva o offset para a faixa atual
         if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
@@ -255,11 +257,13 @@ class LyricsWindow(QtWidgets.QWidget):
         self.update()
 
     def decrease_sync(self):
+        print(f"[DEBUG] decrease_sync chamado - offset atual: {self.sync_offset}")
         self.sync_offset -= 500
         self.log_window.add_log(f"sync_offset alterado para {self.sync_offset} em decrease_sync")
         self._user_adjusted_sync = True
         self.log_window.add_log(f"_user_adjusted_sync alterado para True em decrease_sync")
         self.log_window.add_log(f"Ajuste manual: decrease_sync: sync_offset={self.sync_offset}")
+        print(f"[DEBUG] decrease_sync finalizado - novo offset: {self.sync_offset}")
         
         # Salva o offset para a faixa atual
         if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
@@ -299,34 +303,62 @@ class LyricsWindow(QtWidgets.QWidget):
     
     def reset_offset(self):
         """Reseta o offset para a faixa atual"""
+        print(f"[DEBUG] [RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
+        self.log_window.add_log(f"[RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
         if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
             track_key = self.get_track_key(self.current_artist, self.current_song_title)
             self.sync_offset = 0
-            self._user_adjusted_sync = False
-            self.save_track_offset(self.current_artist, self.current_song_title, 0)
-            self.log_window.add_log(f"Offset resetado para '{track_key}'")
+            self._user_adjusted_sync = True  # Impede sobrescrita pelo cache
+            self.offset_cache[track_key] = 0
+            self.save_offset_cache()
+            self.log_window.add_log(f"[RESET_OFFSET] Offset resetado para '{track_key}': 0ms")
             self.update_sync_label()
-        self.update()
+            self.update()
+        print(f"[DEBUG] [RESET_OFFSET] finalizado - offset atual: {self.sync_offset}")
 
     @pyqtSlot(dict)
     def update_lyrics_data(self, data):
+        print(f"[DEBUG] [UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
+        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
         # Inicializa flag de ajuste manual se não existir
         if not hasattr(self, '_user_adjusted_sync'):
             self._user_adjusted_sync = False
         
+        # Extrai informações da faixa atual se disponíveis
+        if 'artist' in data and 'title' in data:
+            self.current_artist = data['artist']
+            self.current_song_title = data['title']
+            self.log_window.add_log(f"Faixa atual atualizada: {self.current_artist} - {self.current_song_title}")
+        
         # Calcula o progresso efetivo com o offset aplicado
         progress_ms = data.get('progress', 0)
         progress_with_offset = progress_ms + self.sync_offset
+        print(f'[DEBUG] === APLICAÇÃO DO OFFSET ===')
+        print(f'[DEBUG] Progress original: {progress_ms}ms')
+        print(f'[DEBUG] Offset atual: {self.sync_offset}ms')
+        print(f'[DEBUG] Progress com offset: {progress_with_offset}ms')
+        print(f'[DEBUG] Diferença aplicada: {progress_with_offset - progress_ms}ms')
         
         # Verifica se há offset em cache para carregar
         if 'cached_offset' in data:
             cached_offset = data['cached_offset']
-            self.sync_offset = cached_offset
-            self._user_adjusted_sync = True
-            self.log_window.add_log(f"Offset em cache carregado: {cached_offset}ms")
-            self.update_sync_label()
-            progress_with_offset = progress_ms + self.sync_offset
-
+            print(f"[DEBUG] [UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
+            self.log_window.add_log(f"[UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
+            # Só aplica o cached_offset se for diferente do offset atual
+            # Isso evita que o offset seja resetado incorretamente
+            if self.sync_offset != cached_offset:
+                print(f"[DEBUG] [UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
+                self.log_window.add_log(f"[UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
+                self.sync_offset = cached_offset
+                self.log_window.add_log(f"Offset em cache carregado: {cached_offset}ms")
+                self.update_sync_label()
+                # ATUALIZA O PROGRESSO COM O NOVO OFFSET
+                progress_with_offset = progress_ms + self.sync_offset
+                print(f'[DEBUG] === REAPLICAÇÃO DO OFFSET APÓS CACHED ===')
+                print(f'[DEBUG] Novo offset: {self.sync_offset}ms')
+                print(f'[DEBUG] Progress com novo offset: {progress_with_offset}ms')
+        print(f"[DEBUG] [UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
+        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
         # LOG EXTRA PARA DIAGNÓSTICO
         print("[DEBUG] update_lyrics_data chamada")
         print(f"[DEBUG] Payload recebido: {data}")
@@ -357,30 +389,39 @@ class LyricsWindow(QtWidgets.QWidget):
 
         # Atualiza o índice da linha atual apenas se houver letras sincronizadas
         if self.parsed_lyrics:
+            print(f'[DEBUG] === SELEÇÃO DO VERSO ===')
+            print(f'[DEBUG] Total de versos: {len(self.parsed_lyrics)}')
             new_current_line_index = -1
             bloco_log = ''
             if progress_with_offset < self.parsed_lyrics[0][0]:
                 new_current_line_index = 0
                 bloco_log = f"(start={self.parsed_lyrics[0][0]}, end={self.parsed_lyrics[0][1]}, text='{self.parsed_lyrics[0][2]}')"
+                print(f'[DEBUG] Antes do primeiro verso - selecionando verso 0')
             else:
-                # Procura bloco cujo intervalo cobre o tempo atual
+                # Procura bloco cujo intervalo cobre o tempo atual (pega o ÚLTIMO, não o primeiro)
+                print(f'[DEBUG] Procurando verso para progress_with_offset={progress_with_offset}ms')
                 for i, (start, end, text) in enumerate(self.parsed_lyrics):
+                    print(f'[DEBUG] Verso {i}: {start}ms-{end}ms | "{text[:30]}..." | Match: {start <= progress_with_offset < end}')
                     if start <= progress_with_offset < end:
-                        new_current_line_index = i
+                        new_current_line_index = i  # NÃO faz break, pega o último!
                         bloco_log = f"(start={start}, end={end}, text='{text}')"
-                        break
+                if new_current_line_index != -1:
+                    print(f'[DEBUG] ✓ VERSO ENCONTRADO: {new_current_line_index} | {self.parsed_lyrics[new_current_line_index][0]}ms-{self.parsed_lyrics[new_current_line_index][1]}ms')
                 # Se não encontrou, mantém o último verso válido
                 if new_current_line_index == -1:
                     new_current_line_index = len(self.parsed_lyrics) - 1
                     last = self.parsed_lyrics[new_current_line_index]
                     bloco_log = f"(start={last[0]}, end={last[1]}, text='{last[2]}') [LAST]"
+                    print(f'[DEBUG] ⚠ Nenhum verso encontrado - usando último: {new_current_line_index}')
             # Log detalhado do bloco selecionado
             new_line_text = self.parsed_lyrics[new_current_line_index][2] if 0 <= new_current_line_index < len(self.parsed_lyrics) else None
             self.log_window.add_log(f"[SYNC] progress={progress_ms}ms | offset={self.sync_offset}ms | progress+offset={progress_with_offset}ms | idx={new_current_line_index} | bloco={bloco_log}")
+            print(f"[DEBUG] Verso selecionado: idx={new_current_line_index} | texto='{new_line_text}' | progress_with_offset={progress_with_offset}ms")
             # Loga os intervalos de todos os blocos (resumido)
             blocos_resumidos = ', '.join([f"({s}-{e})" for s,e,_ in self.parsed_lyrics])
             self.log_window.add_log(f"[SYNC] Blocos: {blocos_resumidos}")
             if new_current_line_index != self.current_line_index:
+                print(f"[DEBUG] MUDANÇA DE VERSO: {self.current_line_index} -> {new_current_line_index}")
                 self.current_line_index = new_current_line_index
                 self.user_has_scrolled = False
                 self.update()
@@ -396,43 +437,132 @@ class LyricsWindow(QtWidgets.QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(QBrush(QColor(0, 0, 0, 1)))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(0, 0, 0, 0)))  # Fundo totalmente transparente
-        painter.drawRoundedRect(self.rect(), 10, 10)
+        
+        # Fundo transparente
+        painter.setBrush(QBrush(QColor(0, 0, 0, 120)))
+        painter.setPen(QPen(QColor(0, 0, 0, 0)))
+        painter.drawRect(self.rect())
+        
+        # Se não há letras, mostrar mensagem
         if not self.parsed_lyrics:
-            painter.setFont(QFont('Arial', 14))
-            painter.setPen(QPen(QColor(255, 255, 255, 200)))
+            msg = self.text_content if self.text_content else "Nenhuma letra disponível"
+            painter.setFont(QFont('Arial', 16, QFont.Weight.Normal))
+            painter.setPen(QPen(QColor(255, 255, 255, 220)))
             rect = self.rect().adjusted(32, 0, -32, 0)
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, self.text_content)
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, msg)
             return
-        line_height = 48  # Mais espaçamento vertical
-        total_lines_to_display = 5
-        view_center_y = self.height() // 2
-        center_index = self.current_line_index if not self.user_has_scrolled else max(0, min(self.current_line_index + self.manual_scroll_offset, len(self.parsed_lyrics) - 1))
-        start_index = max(0, center_index - (total_lines_to_display // 2))
-        end_index = min(len(self.parsed_lyrics), start_index + total_lines_to_display)
-        for i in range(start_index, end_index):
-            start, end, text = self.parsed_lyrics[i]
-            y = view_center_y + (i - center_index) * line_height
-            if i == center_index:
-                font_size = 24  # Fonte máxima menor
-                padding = 48    # Mais padding lateral
-                metrics = QFontMetrics(QFont('Arial', font_size, QFont.Weight.Bold))
-                while metrics.horizontalAdvance(text) > self.width() - 2 * padding and font_size > 16:
-                    font_size -= 2
-                    metrics = QFontMetrics(QFont('Arial', font_size, QFont.Weight.Bold))
-                painter.setFont(QFont('Arial', font_size, QFont.Weight.Bold))
-                painter.setPen(QPen(QColor(255, 255, 255, 255)))
+        
+        # Calcular alturas reais de cada verso
+        padding = 32  # Reduzir padding para mais espaço
+        verse_spacing = 15  # Espaçamento entre versos
+        
+        # --- Seleção dos versos a serem exibidos ---
+        context_above = 2
+        context_below = 2
+        num_verses = len(self.parsed_lyrics)
+        
+        center_index = self.current_line_index if not self.user_has_scrolled else max(0, min(self.current_line_index + self.manual_scroll_offset, num_verses - 1))
+        
+        # Garante que sempre haja pelo menos 2 acima e 2 abaixo, se possível
+        start_index = max(0, center_index - context_above)
+        end_index = min(num_verses, center_index + context_below + 1)
+        
+        # Se não couber tudo na janela, reduz o contexto, mas nunca menos que o central
+        while True:
+            # Calcular alturas reais
+            heights = []
+            for i in range(start_index, end_index):
+                _, _, text = self.parsed_lyrics[i]
+                
+                if i == center_index:
+                    font = QFont('Arial', 26, QFont.Weight.Bold)
+                    metrics = QFontMetrics(font)
+                else:
+                    font = QFont('Arial', 18, QFont.Weight.Normal)
+                    metrics = QFontMetrics(font)
+                rect = QRect(padding, 0, self.width() - 2*padding, 0)
+                text_rect = metrics.boundingRect(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
+                heights.append(max(text_rect.height() + 15, 40))
+            total_content_height = sum(heights) + (len(heights) - 1) * verse_spacing
+            if total_content_height <= self.height() - 60 or (start_index == center_index and end_index == center_index+1):
+                break
+            # Reduz contexto simetricamente
+            if end_index - start_index > 1:
+                if (end_index - 1) - center_index > center_index - start_index:
+                    end_index -= 1
+                else:
+                    start_index += 1
             else:
-                painter.setFont(QFont('Arial', 18))
-                painter.setPen(QPen(QColor(255, 255, 255, 110)))
-            rect = self.rect().adjusted(padding if i == center_index else 0, y - view_center_y, -(padding if i == center_index else 0), y - view_center_y)
+                break
+        
+        # NOVA LÓGICA: Centralizar o verso em destaque especificamente
+        center_verse_idx = center_index - start_index  # Índice local do verso central
+        
+        if center_verse_idx >= 0 and center_verse_idx < len(heights):
+            # Calcular altura total dos versos ANTES do verso central
+            height_before_center = 0
+            for i in range(center_verse_idx):
+                height_before_center += heights[i] + verse_spacing
+            
+            # Posicionar o verso central no meio da janela
+            center_verse_height = heights[center_verse_idx]
+            window_center_y = self.height() // 2
+            center_verse_y = window_center_y - (center_verse_height // 2)
+            
+            # Calcular posição inicial considerando os versos anteriores
+            start_y = max(30, center_verse_y - height_before_center)
+        else:
+            # Fallback: centralizar todo o bloco
+            total_content_height = sum(heights) + (len(heights) - 1) * verse_spacing
+            start_y = max(30, (self.height() - total_content_height) // 2)
+        
+        current_y = start_y
+        
+        # Verificar se há clipping e ajustar se necessário
+        total_content_height = sum(heights) + (len(heights) - 1) * verse_spacing
+        if total_content_height > self.height() - 60:
+            # Se o conteúdo é maior que a janela, ajustar para evitar clipping
+            if center_verse_idx >= 0 and center_verse_idx < len(heights):
+                # Garantir que o verso central fique visível
+                max_start_y = self.height() - 30 - total_content_height
+                start_y = min(start_y, max_start_y)
+                start_y = max(30, start_y)  # Manter margem superior
+                current_y = start_y
+        
+        for idx, i in enumerate(range(start_index, end_index)):
+            _, _, text = self.parsed_lyrics[i]
+            
+            # Configurar fonte e cor
+            if i == center_index:
+                font = QFont('Arial', 26, QFont.Weight.Bold)  # Fonte maior para destaque
+                color = QColor(255, 255, 255, 255)  # Branco total
+            else:
+                font = QFont('Arial', 18, QFont.Weight.Normal)
+                color = QColor(255, 255, 255, 160)  # Mais suave para contexto
+            
+            painter.setFont(font)
+            painter.setPen(QPen(color))
+            
+            # Criar retângulo para o verso
+            verse_height = heights[idx]
+            rect = QRect(padding, current_y, self.width() - 2*padding, verse_height)
+            
+            # Desenhar o texto centralizado
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
-        # Estrutura pronta para cor baseada na capa do álbum (a ser implementado)
+            
+            # Avançar para próximo verso
+            current_y += verse_height + verse_spacing
+        
+        # Mostrar offset atual no canto inferior direito
+        offset_str = f"Offset: {self.sync_offset/1000:.2f}s"
+        painter.setFont(QFont('Arial', 12))
+        painter.setPen(QPen(QColor(200, 200, 200, 180)))
+        painter.drawText(self.rect().adjusted(0, 0, -12, -8), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, offset_str)
 
     def wheelEvent(self, event: QWheelEvent):
-        if not self.parsed_lyrics: return
+        if not self.parsed_lyrics:
+            return
+        print('[DEBUG] wheelEvent acionado')
         self.user_has_scrolled = True
         self.scroll_snap_back_timer.start()
         delta = -1 if event.angleDelta().y() > 0 else 1
@@ -440,6 +570,7 @@ class LyricsWindow(QtWidgets.QWidget):
         max_offset = len(self.parsed_lyrics) - 1 - self.current_line_index
         min_offset = -self.current_line_index
         self.manual_scroll_offset = max(min_offset, min(self.manual_scroll_offset, max_offset))
+        print(f'[DEBUG] manual_scroll_offset: {self.manual_scroll_offset}')
         self.update()
         event.accept()
 
@@ -458,3 +589,135 @@ class LyricsWindow(QtWidgets.QWidget):
         self._drag_pos = None
         event.accept()
 
+    def reset_offset(self):
+        """Reseta o offset para a faixa atual"""
+        print(f"[DEBUG] [RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
+        self.log_window.add_log(f"[RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
+        if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
+            track_key = self.get_track_key(self.current_artist, self.current_song_title)
+            self.sync_offset = 0
+            self._user_adjusted_sync = True  # Impede sobrescrita pelo cache
+            self.offset_cache[track_key] = 0
+            self.save_offset_cache()
+            self.log_window.add_log(f"[RESET_OFFSET] Offset resetado para '{track_key}': 0ms")
+            self.update_sync_label()
+            self.update()
+        print(f"[DEBUG] [RESET_OFFSET] finalizado - offset atual: {self.sync_offset}")
+
+    @pyqtSlot(dict)
+    def update_lyrics_data(self, data):
+        print(f"[DEBUG] [UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
+        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
+        # Inicializa flag de ajuste manual se não existir
+        if not hasattr(self, '_user_adjusted_sync'):
+            self._user_adjusted_sync = False
+        
+        # Extrai informações da faixa atual se disponíveis
+        if 'artist' in data and 'title' in data:
+            self.current_artist = data['artist']
+            self.current_song_title = data['title']
+            self.log_window.add_log(f"Faixa atual atualizada: {self.current_artist} - {self.current_song_title}")
+        
+        # Calcula o progresso efetivo com o offset aplicado
+        progress_ms = data.get('progress', 0)
+        progress_with_offset = progress_ms + self.sync_offset
+        print(f'[DEBUG] === APLICAÇÃO DO OFFSET ===')
+        print(f'[DEBUG] Progress original: {progress_ms}ms')
+        print(f'[DEBUG] Offset atual: {self.sync_offset}ms')
+        print(f'[DEBUG] Progress com offset: {progress_with_offset}ms')
+        print(f'[DEBUG] Diferença aplicada: {progress_with_offset - progress_ms}ms')
+        
+        # Verifica se há offset em cache para carregar
+        if 'cached_offset' in data:
+            cached_offset = data['cached_offset']
+            print(f"[DEBUG] [UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
+            self.log_window.add_log(f"[UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
+            # Só aplica o cached_offset se for diferente do offset atual
+            # Isso evita que o offset seja resetado incorretamente
+            if self.sync_offset != cached_offset:
+                print(f"[DEBUG] [UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
+                self.log_window.add_log(f"[UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
+                self.sync_offset = cached_offset
+                self.log_window.add_log(f"Offset em cache carregado: {cached_offset}ms")
+                self.update_sync_label()
+                # ATUALIZA O PROGRESSO COM O NOVO OFFSET
+                progress_with_offset = progress_ms + self.sync_offset
+                print(f'[DEBUG] === REAPLICAÇÃO DO OFFSET APÓS CACHED ===')
+                print(f'[DEBUG] Novo offset: {self.sync_offset}ms')
+                print(f'[DEBUG] Progress com novo offset: {progress_with_offset}ms')
+        print(f"[DEBUG] [UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
+        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
+        # LOG EXTRA PARA DIAGNÓSTICO
+        print("[DEBUG] update_lyrics_data chamada")
+        print(f"[DEBUG] Payload recebido: {data}")
+        # Detecta se o payload forneceu novos dados de letra ou apenas progresso
+        has_parsed = 'parsed' in data
+        has_text = 'text' in data
+
+        new_parsed_lyrics = data.get('parsed') if has_parsed else None
+        new_text = data.get('text') if has_text else None
+
+        # --- INÍCIO DA LÓGICA ROBUSTA ---
+        # Caso o payload contenha chave 'parsed'
+        if has_parsed:
+            if not new_parsed_lyrics:
+                # Payload indicou que não há letras sincronizadas
+                if new_text == "Nenhuma música tocando..." and self.text_content == new_text:
+                    return
+                self.text_content = new_text if new_text is not None else self.text_content
+                self.current_line_index = -1
+                self.parsed_lyrics = []
+                self.update()
+                return
+            # Se há letras sincronizadas, atualiza a UI com a sincronização
+            if new_parsed_lyrics is not None and self.parsed_lyrics != new_parsed_lyrics:
+                self.log_window.add_log("=== RELOAD DE LETRAS SINCRONIZADAS DETECTADO ===")
+                self.log_window.add_log(f"parsed_lyrics antigo: {[t for t, *_ in getattr(self, 'parsed_lyrics', [])]}")
+                self.parsed_lyrics = new_parsed_lyrics
+
+        # Atualiza o índice da linha atual apenas se houver letras sincronizadas
+        if self.parsed_lyrics:
+            print(f'[DEBUG] === SELEÇÃO DO VERSO ===')
+            print(f'[DEBUG] Total de versos: {len(self.parsed_lyrics)}')
+            new_current_line_index = -1
+            bloco_log = ''
+            if progress_with_offset < self.parsed_lyrics[0][0]:
+                new_current_line_index = 0
+                bloco_log = f"(start={self.parsed_lyrics[0][0]}, end={self.parsed_lyrics[0][1]}, text='{self.parsed_lyrics[0][2]}')"
+                print(f'[DEBUG] Antes do primeiro verso - selecionando verso 0')
+            else:
+                # Procura bloco cujo intervalo cobre o tempo atual (pega o ÚLTIMO, não o primeiro)
+                print(f'[DEBUG] Procurando verso para progress_with_offset={progress_with_offset}ms')
+                for i, (start, end, text) in enumerate(self.parsed_lyrics):
+                    print(f'[DEBUG] Verso {i}: {start}ms-{end}ms | "{text[:30]}..." | Match: {start <= progress_with_offset < end}')
+                    if start <= progress_with_offset < end:
+                        new_current_line_index = i  # NÃO faz break, pega o último!
+                        bloco_log = f"(start={start}, end={end}, text='{text}')"
+                if new_current_line_index != -1:
+                    print(f'[DEBUG] ✓ VERSO ENCONTRADO: {new_current_line_index} | {self.parsed_lyrics[new_current_line_index][0]}ms-{self.parsed_lyrics[new_current_line_index][1]}ms')
+                # Se não encontrou, mantém o último verso válido
+                if new_current_line_index == -1:
+                    new_current_line_index = len(self.parsed_lyrics) - 1
+                    last = self.parsed_lyrics[new_current_line_index]
+                    bloco_log = f"(start={last[0]}, end={last[1]}, text='{last[2]}') [LAST]"
+                    print(f'[DEBUG] ⚠ Nenhum verso encontrado - usando último: {new_current_line_index}')
+            # Log detalhado do bloco selecionado
+            new_line_text = self.parsed_lyrics[new_current_line_index][2] if 0 <= new_current_line_index < len(self.parsed_lyrics) else None
+            self.log_window.add_log(f"[SYNC] progress={progress_ms}ms | offset={self.sync_offset}ms | progress+offset={progress_with_offset}ms | idx={new_current_line_index} | bloco={bloco_log}")
+            print(f"[DEBUG] Verso selecionado: idx={new_current_line_index} | texto='{new_line_text}' | progress_with_offset={progress_with_offset}ms")
+            # Loga os intervalos de todos os blocos (resumido)
+            blocos_resumidos = ', '.join([f"({s}-{e})" for s,e,_ in self.parsed_lyrics])
+            self.log_window.add_log(f"[SYNC] Blocos: {blocos_resumidos}")
+            if new_current_line_index != self.current_line_index:
+                print(f"[DEBUG] MUDANÇA DE VERSO: {self.current_line_index} -> {new_current_line_index}")
+                self.current_line_index = new_current_line_index
+                self.user_has_scrolled = False
+                self.update()
+            else:
+                self.update()
+        else:
+            # Não há parsed_lyrics: exibe texto puro centralizado
+            if new_text:
+                self.text_content = new_text
+                self.current_line_index = -1
+                self.update()
