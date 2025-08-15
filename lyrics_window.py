@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (QWidget, QSystemTrayIcon,
 from PyQt6.QtGui import (QFont, QColor, QWheelEvent, QMouseEvent, QPainter, 
                          QBrush, QPen, QFontMetrics, QIcon, QAction)
 from spotify_thread import SpotifyThread
+from offset_controller import OffsetController
 import config
 import time
 
@@ -98,7 +99,6 @@ class LyricsWindow(QtWidgets.QWidget):
         self.scroll_snap_back_timer.setInterval(3000)
         self.scroll_snap_back_timer.timeout.connect(self.enable_snap_back)
         self.initial_label_hidden = False
-        self.sync_offset = 0  # Offset de sincronização só aqui!
         
         # Sistema de logs
         self.log_window = LogWindow()
@@ -108,7 +108,9 @@ class LyricsWindow(QtWidgets.QWidget):
         self.offset_cache_file = os.path.join(config.CACHE_DIR, "offset_cache.json")
         self.offset_cache = self.load_offset_cache()
         
-        self.log_window.add_log(f"sync_offset inicializado para 0 em __init__")
+        # OffsetController para gerenciar o offset de sincronização
+        self.offset_controller = OffsetController(initial=0)
+        self.log_window.add_log(f"OffsetController inicializado em __init__")
         
         self.create_tray_icon()
         self.init_ui()
@@ -170,7 +172,7 @@ class LyricsWindow(QtWidgets.QWidget):
         self.tray_menu.addSeparator()
         self.increase_sync_action = QAction("Adiantar letra (+0.5s)", self)
         self.decrease_sync_action = QAction("Atrasar letra (-0.5s)", self)
-        self.sync_status_action = QAction(f"Ajuste: {getattr(self, 'sync_offset', 0) / 1000:.1f}s", self)
+        self.sync_status_action = QAction("Ajuste: 0.0s", self)
         self.sync_status_action.setEnabled(False)
         self.tray_menu.addAction(self.increase_sync_action)
         self.tray_menu.addAction(self.decrease_sync_action)
@@ -241,36 +243,38 @@ class LyricsWindow(QtWidgets.QWidget):
 
 
     def increase_sync(self):
-        print(f"[DEBUG] increase_sync chamado - offset atual: {self.sync_offset}")
-        self.sync_offset += 500
-        self.log_window.add_log(f"sync_offset alterado para {self.sync_offset} em increase_sync")
-        self._user_adjusted_sync = True
-        self.log_window.add_log(f"_user_adjusted_sync alterado para True em increase_sync")
-        self.log_window.add_log(f"Ajuste manual: increase_sync: sync_offset={self.sync_offset}")
-        print(f"[DEBUG] increase_sync finalizado - novo offset: {self.sync_offset}")
+        current_offset = self.offset_controller.get_sync_offset()
+        new_offset = current_offset + 500
+        print(f"[DEBUG] increase_sync chamado - offset atual: {current_offset}")
         
-        # Salva o offset para a faixa atual
-        if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
-            self.save_track_offset(self.current_artist, self.current_song_title, self.sync_offset)
-        
-        self.update_sync_label()
-        self.update()
+        success = self.offset_controller.set_sync_offset(new_offset, user_action=True, source="UI-increase")
+        if success:
+            self.log_window.add_log(f"Ajuste manual: increase_sync: offset={new_offset}")
+            print(f"[DEBUG] increase_sync finalizado - novo offset: {new_offset}")
+            
+            # Salva o offset para a faixa atual
+            if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
+                self.save_track_offset(self.current_artist, self.current_song_title, new_offset)
+            
+            self.update_sync_label()
+            self.update()
 
     def decrease_sync(self):
-        print(f"[DEBUG] decrease_sync chamado - offset atual: {self.sync_offset}")
-        self.sync_offset -= 500
-        self.log_window.add_log(f"sync_offset alterado para {self.sync_offset} em decrease_sync")
-        self._user_adjusted_sync = True
-        self.log_window.add_log(f"_user_adjusted_sync alterado para True em decrease_sync")
-        self.log_window.add_log(f"Ajuste manual: decrease_sync: sync_offset={self.sync_offset}")
-        print(f"[DEBUG] decrease_sync finalizado - novo offset: {self.sync_offset}")
+        current_offset = self.offset_controller.get_sync_offset()
+        new_offset = current_offset - 500
+        print(f"[DEBUG] decrease_sync chamado - offset atual: {current_offset}")
         
-        # Salva o offset para a faixa atual
-        if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
-            self.save_track_offset(self.current_artist, self.current_song_title, self.sync_offset)
-        
-        self.update_sync_label()
-        self.update()
+        success = self.offset_controller.set_sync_offset(new_offset, user_action=True, source="UI-decrease")
+        if success:
+            self.log_window.add_log(f"Ajuste manual: decrease_sync: offset={new_offset}")
+            print(f"[DEBUG] decrease_sync finalizado - novo offset: {new_offset}")
+            
+            # Salva o offset para a faixa atual
+            if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
+                self.save_track_offset(self.current_artist, self.current_song_title, new_offset)
+            
+            self.update_sync_label()
+            self.update()
 
     def reset_lyrics_position(self):
         """Centraliza a janela no monitor principal e centraliza a letra na tela."""
@@ -286,7 +290,8 @@ class LyricsWindow(QtWidgets.QWidget):
         self.update()
 
     def update_sync_label(self):
-        self.sync_status_action.setText(f"Ajuste: {self.sync_offset / 1000:.1f}s")
+        current_offset = self.offset_controller.get_sync_offset()
+        self.sync_status_action.setText(f"Ajuste: {current_offset / 1000:.1f}s")
 
     def enable_snap_back(self):
         self.user_has_scrolled = False
@@ -303,26 +308,25 @@ class LyricsWindow(QtWidgets.QWidget):
     
     def reset_offset(self):
         """Reseta o offset para a faixa atual"""
-        print(f"[DEBUG] [RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
-        self.log_window.add_log(f"[RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
-        if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
+        current_offset = self.offset_controller.get_sync_offset()
+        print(f"[DEBUG] [RESET_OFFSET] chamado - offset atual: {current_offset}")
+        self.log_window.add_log(f"[RESET_OFFSET] chamado - offset atual: {current_offset}")
+        
+        success = self.offset_controller.set_sync_offset(0, user_action=True, source="UI-reset")
+        if success and hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
             track_key = self.get_track_key(self.current_artist, self.current_song_title)
-            self.sync_offset = 0
-            self._user_adjusted_sync = True  # Impede sobrescrita pelo cache
             self.offset_cache[track_key] = 0
             self.save_offset_cache()
             self.log_window.add_log(f"[RESET_OFFSET] Offset resetado para '{track_key}': 0ms")
             self.update_sync_label()
             self.update()
-        print(f"[DEBUG] [RESET_OFFSET] finalizado - offset atual: {self.sync_offset}")
+        print(f"[DEBUG] [RESET_OFFSET] finalizado - offset atual: {self.offset_controller.get_sync_offset()}")
 
     @pyqtSlot(dict)
     def update_lyrics_data(self, data):
-        print(f"[DEBUG] [UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
-        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
-        # Inicializa flag de ajuste manual se não existir
-        if not hasattr(self, '_user_adjusted_sync'):
-            self._user_adjusted_sync = False
+        current_offset = self.offset_controller.get_sync_offset()
+        print(f"[DEBUG] [UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {current_offset}")
+        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {current_offset}")
         
         # Extrai informações da faixa atual se disponíveis
         if 'artist' in data and 'title' in data:
@@ -332,33 +336,33 @@ class LyricsWindow(QtWidgets.QWidget):
         
         # Calcula o progresso efetivo com o offset aplicado
         progress_ms = data.get('progress', 0)
-        progress_with_offset = progress_ms + self.sync_offset
+        progress_with_offset = progress_ms + current_offset
         print(f'[DEBUG] === APLICAÇÃO DO OFFSET ===')
         print(f'[DEBUG] Progress original: {progress_ms}ms')
-        print(f'[DEBUG] Offset atual: {self.sync_offset}ms')
+        print(f'[DEBUG] Offset atual: {current_offset}ms')
         print(f'[DEBUG] Progress com offset: {progress_with_offset}ms')
         print(f'[DEBUG] Diferença aplicada: {progress_with_offset - progress_ms}ms')
         
         # Verifica se há offset em cache para carregar
         if 'cached_offset' in data:
             cached_offset = data['cached_offset']
-            print(f"[DEBUG] [UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
-            self.log_window.add_log(f"[UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
+            print(f"[DEBUG] [UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset}")
+            self.log_window.add_log(f"[UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset}")
             # Só aplica o cached_offset se for diferente do offset atual
             # Isso evita que o offset seja resetado incorretamente
-            if self.sync_offset != cached_offset:
+            if current_offset != cached_offset:
                 print(f"[DEBUG] [UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
                 self.log_window.add_log(f"[UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
-                self.sync_offset = cached_offset
+                self.offset_controller.set_sync_offset(cached_offset, user_action=False, source="SpotifyThread")
                 self.log_window.add_log(f"Offset em cache carregado: {cached_offset}ms")
                 self.update_sync_label()
                 # ATUALIZA O PROGRESSO COM O NOVO OFFSET
-                progress_with_offset = progress_ms + self.sync_offset
+                progress_with_offset = progress_ms + cached_offset
                 print(f'[DEBUG] === REAPLICAÇÃO DO OFFSET APÓS CACHED ===')
-                print(f'[DEBUG] Novo offset: {self.sync_offset}ms')
+                print(f'[DEBUG] Novo offset: {cached_offset}ms')
                 print(f'[DEBUG] Progress com novo offset: {progress_with_offset}ms')
-        print(f"[DEBUG] [UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
-        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
+        print(f"[DEBUG] [UPDATE_LYRICS_DATA] FIM - sync_offset: {self.offset_controller.get_sync_offset()}")
+        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] FIM - sync_offset: {self.offset_controller.get_sync_offset()}")
         # LOG EXTRA PARA DIAGNÓSTICO
         print("[DEBUG] update_lyrics_data chamada")
         print(f"[DEBUG] Payload recebido: {data}")
@@ -415,7 +419,8 @@ class LyricsWindow(QtWidgets.QWidget):
                     print(f'[DEBUG] ⚠ Nenhum verso encontrado - usando último: {new_current_line_index}')
             # Log detalhado do bloco selecionado
             new_line_text = self.parsed_lyrics[new_current_line_index][2] if 0 <= new_current_line_index < len(self.parsed_lyrics) else None
-            self.log_window.add_log(f"[SYNC] progress={progress_ms}ms | offset={self.sync_offset}ms | progress+offset={progress_with_offset}ms | idx={new_current_line_index} | bloco={bloco_log}")
+            current_offset = self.offset_controller.get_sync_offset()
+            self.log_window.add_log(f"[SYNC] progress={progress_ms}ms | offset={current_offset}ms | progress+offset={progress_with_offset}ms | idx={new_current_line_index} | bloco={bloco_log}")
             print(f"[DEBUG] Verso selecionado: idx={new_current_line_index} | texto='{new_line_text}' | progress_with_offset={progress_with_offset}ms")
             # Loga os intervalos de todos os blocos (resumido)
             blocos_resumidos = ', '.join([f"({s}-{e})" for s,e,_ in self.parsed_lyrics])
@@ -554,7 +559,8 @@ class LyricsWindow(QtWidgets.QWidget):
             current_y += verse_height + verse_spacing
         
         # Mostrar offset atual no canto inferior direito
-        offset_str = f"Offset: {self.sync_offset/1000:.2f}s"
+        current_offset = self.offset_controller.get_sync_offset()
+        offset_str = f"Offset: {current_offset/1000:.2f}s"
         painter.setFont(QFont('Arial', 12))
         painter.setPen(QPen(QColor(200, 200, 200, 180)))
         painter.drawText(self.rect().adjusted(0, 0, -12, -8), Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight, offset_str)
@@ -589,64 +595,7 @@ class LyricsWindow(QtWidgets.QWidget):
         self._drag_pos = None
         event.accept()
 
-    def reset_offset(self):
-        """Reseta o offset para a faixa atual"""
-        print(f"[DEBUG] [RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
-        self.log_window.add_log(f"[RESET_OFFSET] chamado - offset atual: {self.sync_offset}")
-        if hasattr(self, 'current_artist') and hasattr(self, 'current_song_title'):
-            track_key = self.get_track_key(self.current_artist, self.current_song_title)
-            self.sync_offset = 0
-            self._user_adjusted_sync = True  # Impede sobrescrita pelo cache
-            self.offset_cache[track_key] = 0
-            self.save_offset_cache()
-            self.log_window.add_log(f"[RESET_OFFSET] Offset resetado para '{track_key}': 0ms")
-            self.update_sync_label()
-            self.update()
-        print(f"[DEBUG] [RESET_OFFSET] finalizado - offset atual: {self.sync_offset}")
 
-    @pyqtSlot(dict)
-    def update_lyrics_data(self, data):
-        print(f"[DEBUG] [UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
-        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] INÍCIO - sync_offset: {self.sync_offset}")
-        # Inicializa flag de ajuste manual se não existir
-        if not hasattr(self, '_user_adjusted_sync'):
-            self._user_adjusted_sync = False
-        
-        # Extrai informações da faixa atual se disponíveis
-        if 'artist' in data and 'title' in data:
-            self.current_artist = data['artist']
-            self.current_song_title = data['title']
-            self.log_window.add_log(f"Faixa atual atualizada: {self.current_artist} - {self.current_song_title}")
-        
-        # Calcula o progresso efetivo com o offset aplicado
-        progress_ms = data.get('progress', 0)
-        progress_with_offset = progress_ms + self.sync_offset
-        print(f'[DEBUG] === APLICAÇÃO DO OFFSET ===')
-        print(f'[DEBUG] Progress original: {progress_ms}ms')
-        print(f'[DEBUG] Offset atual: {self.sync_offset}ms')
-        print(f'[DEBUG] Progress com offset: {progress_with_offset}ms')
-        print(f'[DEBUG] Diferença aplicada: {progress_with_offset - progress_ms}ms')
-        
-        # Verifica se há offset em cache para carregar
-        if 'cached_offset' in data:
-            cached_offset = data['cached_offset']
-            print(f"[DEBUG] [UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
-            self.log_window.add_log(f"[UPDATE_LYRICS_DATA] RECEBEU cached_offset: {cached_offset} | _user_adjusted_sync={self._user_adjusted_sync}")
-            # Só aplica o cached_offset se for diferente do offset atual
-            # Isso evita que o offset seja resetado incorretamente
-            if self.sync_offset != cached_offset:
-                print(f"[DEBUG] [UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
-                self.log_window.add_log(f"[UPDATE_LYRICS_DATA] VAI APLICAR cached_offset: {cached_offset}")
-                self.sync_offset = cached_offset
-                self.log_window.add_log(f"Offset em cache carregado: {cached_offset}ms")
-                self.update_sync_label()
-                # ATUALIZA O PROGRESSO COM O NOVO OFFSET
-                progress_with_offset = progress_ms + self.sync_offset
-                print(f'[DEBUG] === REAPLICAÇÃO DO OFFSET APÓS CACHED ===')
-                print(f'[DEBUG] Novo offset: {self.sync_offset}ms')
-                print(f'[DEBUG] Progress com novo offset: {progress_with_offset}ms')
-        print(f"[DEBUG] [UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
-        self.log_window.add_log(f"[UPDATE_LYRICS_DATA] FIM - sync_offset: {self.sync_offset}")
         # LOG EXTRA PARA DIAGNÓSTICO
         print("[DEBUG] update_lyrics_data chamada")
         print(f"[DEBUG] Payload recebido: {data}")
@@ -703,7 +652,8 @@ class LyricsWindow(QtWidgets.QWidget):
                     print(f'[DEBUG] ⚠ Nenhum verso encontrado - usando último: {new_current_line_index}')
             # Log detalhado do bloco selecionado
             new_line_text = self.parsed_lyrics[new_current_line_index][2] if 0 <= new_current_line_index < len(self.parsed_lyrics) else None
-            self.log_window.add_log(f"[SYNC] progress={progress_ms}ms | offset={self.sync_offset}ms | progress+offset={progress_with_offset}ms | idx={new_current_line_index} | bloco={bloco_log}")
+            current_offset = self.offset_controller.get_sync_offset()
+            self.log_window.add_log(f"[SYNC] progress={progress_ms}ms | offset={current_offset}ms | progress+offset={progress_with_offset}ms | idx={new_current_line_index} | bloco={bloco_log}")
             print(f"[DEBUG] Verso selecionado: idx={new_current_line_index} | texto='{new_line_text}' | progress_with_offset={progress_with_offset}ms")
             # Loga os intervalos de todos os blocos (resumido)
             blocos_resumidos = ', '.join([f"({s}-{e})" for s,e,_ in self.parsed_lyrics])
