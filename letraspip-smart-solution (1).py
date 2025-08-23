@@ -102,32 +102,50 @@ class SmartLyricsEngine:
     def fetch_lyrics(self, track_name: str, artist_name: str) -> LyricsData:
         """Busca inteligente de letras com múltiplas fontes e heurística de instrumental/incompleta"""
         cache_key = f"{artist_name.lower()} - {track_name.lower()}"
+        
         if cache_key in self.cache:
-            return self.cache[cache_key]
+            cached_result = self.cache[cache_key]
+            return cached_result
+        
+        print(f"[LYRICS] Buscando: {cache_key}")
 
         # 1. Tentar letra sincronizada primeiro
         synced_data = self._try_synced_lyrics(track_name, artist_name)
         if synced_data.quality in [LyricsQuality.SYNCED_HIGH, LyricsQuality.SYNCED_LOW]:
-            if len(synced_data.raw_text.strip()) < 30:
-                # Heurística: letra muito curta, provavelmente instrumental
-                synced_data.quality = LyricsQuality.INSTRUMENTAL
-                synced_data.message = "Instrumental detectado (letra sincronizada muito curta)"
+            parsed = self._ensure_early_entry(synced_data.parsed_lyrics)
+            synced_data = LyricsData(
+                synced_data.quality, parsed, synced_data.raw_text,
+                synced_data.confidence, synced_data.source, synced_data.message
+            )
             self.cache[cache_key] = synced_data
             return synced_data
-
+        else:
+            print(f"[LYRICS] Syncedlyrics falhou: {synced_data.quality.value}")
+        
         # 2. Tentar letra de texto simples
         plain_data = self._try_plain_lyrics(track_name, artist_name)
         if plain_data.quality == LyricsQuality.PLAIN_TEXT:
-            if len(plain_data.raw_text.strip()) < 30:
-                plain_data.quality = LyricsQuality.INSTRUMENTAL
-                plain_data.message = "Instrumental detectado (letra muito curta)"
+            print(f"[LYRICS] Genius sucesso: {len(plain_data.raw_text)} chars")
+            # VERIFICAÇÃO ADICIONAL: se letra é muito pequena ou repetitiva
+            if self._is_likely_instrumental_by_content(plain_data.raw_text):
+                result = LyricsData(LyricsQuality.INSTRUMENTAL, [], "", 0.8, "content_analysis", "Música instrumental (conteúdo suspeito)")
+                self.cache[cache_key] = result
+                return result
             self.cache[cache_key] = plain_data
             return plain_data
 
-        # 3. Detectar se é instrumental
-        instrumental_data = self._detect_instrumental(track_name, artist_name)
-        self.cache[cache_key] = instrumental_data
-        return instrumental_data
+        # 3. Detectar se é instrumental APENAS por palavras-chave óbvias
+        if self._is_obviously_instrumental(track_name):
+            print(f"[LYRICS] Instrumental detectado por nome: {track_name}")
+            result = LyricsData(LyricsQuality.INSTRUMENTAL, [], "", 1.0, "detection", "Música instrumental detectada por nome")
+            self.cache[cache_key] = result
+            return result
+        
+        # 4. Se chegou aqui, realmente não encontrou letra
+        print(f"[LYRICS] Nenhuma letra encontrada após busca completa")
+        result = LyricsData(LyricsQuality.NOT_FOUND, [], "", 0.0, "comprehensive", "Letra não encontrada após busca completa")
+        self.cache[cache_key] = result
+        return result
     
     def _try_synced_lyrics(self, track_name: str, artist_name: str) -> LyricsData:
         """Tenta buscar letra sincronizada"""
@@ -137,21 +155,23 @@ class SmartLyricsEngine:
         
         try:
             query = f"{track_name} {artist_name}"
-            # Busca sincronizada (timeout padrão da biblioteca)
             synced_result = syncedlyrics.search(query)
             
-            if synced_result:
+            if synced_result and str(synced_result).strip():
                 parsed = self._parse_synced_lyrics(synced_result)
-                if parsed:
+                if parsed and len(parsed) > 0:
                     quality = self._analyze_sync_quality(parsed)
                     confidence = 0.9 if quality == LyricsQuality.SYNCED_HIGH else 0.6
                     message = "Letra sincronizada encontrada" if quality == LyricsQuality.SYNCED_HIGH else "Letra sincronizada com possíveis problemas"
                     
                     return LyricsData(quality, parsed, "", confidence, "syncedlyrics", message)
+                else:
+                    print(f"[LYRICS] Syncedlyrics: falha no parsing")
+            else:
+                print(f"[LYRICS] Syncedlyrics: resultado vazio ou None")
         
         except (Exception, TimeoutError) as e:
             print(f"[WARNING] Erro/timeout na busca sincronizada: {e}")
-            # Continua para próxima fonte sem travar
         
         return LyricsData(LyricsQuality.NOT_FOUND, [], "", 0.0, "syncedlyrics", "")
     
@@ -165,7 +185,7 @@ class SmartLyricsEngine:
             result = self.genius.search_song(track_name, artist_name)
             if result and result.lyrics:
                 clean_text = self._clean_lyrics_text(result.lyrics)
-                if len(clean_text.strip()) > 20:  # Texto substantivo
+                if len(clean_text.strip()) > 0:  # Texto substantivo
                     parsed = [(0, 999999999, clean_text)]
                     return LyricsData(LyricsQuality.PLAIN_TEXT, parsed, clean_text, 
                                     0.7, "genius", "Letra encontrada (não sincronizada)")
@@ -175,8 +195,8 @@ class SmartLyricsEngine:
         
         return LyricsData(LyricsQuality.NOT_FOUND, [], "", 0.0, "genius", "")
     
-    def _detect_instrumental(self, track_name: str, artist_name: str) -> LyricsData:
-        """Detecta se a música é instrumental"""
+    def _is_obviously_instrumental(self, track_name: str) -> bool:
+        """Detecta se é instrumental APENAS por palavras-chave óbvias"""
         # Palavras-chave que indicam instrumental
         instrumental_keywords = [
             "instrumental", "interlude", "outro", "intro", "reprise", 
@@ -184,12 +204,7 @@ class SmartLyricsEngine:
         ]
         
         track_lower = track_name.lower()
-        if any(keyword in track_lower for keyword in instrumental_keywords):
-            return LyricsData(LyricsQuality.INSTRUMENTAL, [], "", 1.0, "detection", 
-                            "Música instrumental detectada")
-        
-        return LyricsData(LyricsQuality.NOT_FOUND, [], "", 0.0, "detection", 
-                        "Letra não encontrada")
+        return any(keyword in track_lower for keyword in instrumental_keywords)
     
     def _parse_synced_lyrics(self, synced_result) -> List[Tuple[int, int, str]]:
         """Parser unificado para diferentes formatos de letra sincronizada"""
@@ -236,24 +251,38 @@ class SmartLyricsEngine:
         return self._build_time_blocks(times, texts)
     
     def _build_time_blocks(self, times: List[int], texts: List[str]) -> List[Tuple[int, int, str]]:
-        """Constrói blocos temporais com detecção de instrumentais"""
+        """Constrói blocos temporais com detecção de instrumentais e evita duplicidade antes de instrumentais"""
         if not times or not texts:
             return []
-        
         blocks = []
         for i, (start, text) in enumerate(zip(times, texts)):
-            # Define fim do bloco
             end = times[i + 1] if i + 1 < len(times) else start + 10000
             blocks.append((start, end, text))
-            
             # Detecta gap instrumental (> 8 segundos)
             if i + 1 < len(times):
                 gap = times[i + 1] - end
                 if gap > 8000:  # 8 segundos
-                    blocks.append((end, times[i + 1], "[Instrumental]"))
-        
+                    # Só adiciona bloco instrumental se o texto anterior não for igual ao próximo
+                    next_text = texts[i + 1] if (i + 1) < len(texts) else None
+                    if text != next_text:
+                        blocks.append((end, times[i + 1], "[Instrumental]"))
+        # Remove duplicidades: se um bloco vocal termina e o próximo bloco (após instrumental) repete o mesmo texto, elimina o repetido
+        deduped = []
+        last_vocal = None
+        for j, (start, end, text) in enumerate(blocks):
+            # Remove duplicidade entre blocos vocais consecutivos
+            if j > 0 and text == blocks[j-1][2] and text != "[Instrumental]":
+                continue
+            # Remove duplicidade vocal antes/depois de instrumental
+            if text != "[Instrumental]":
+                if last_vocal == text:
+                    continue
+                last_vocal = text
+            else:
+                last_vocal = None
+            deduped.append((start, end, text))
         # Interpola blocos muito longos
-        return self._interpolate_long_blocks(blocks)
+        return self._interpolate_long_blocks(deduped)
     
     def _interpolate_long_blocks(self, blocks: List[Tuple[int, int, str]], 
                                 max_duration: int = 6000) -> List[Tuple[int, int, str]]:
@@ -309,14 +338,67 @@ class SmartLyricsEngine:
         
         return "\n".join(cleaned).strip()
 
+    def _is_likely_instrumental_by_content(self, lyrics_text: str) -> bool:
+        """Analisa conteúdo da letra para detectar instrumental (curta, repetitiva, vocalizações)"""
+        if not lyrics_text or len(lyrics_text.strip()) < 5:
+            return True
+        
+        clean_text = lyrics_text.lower().strip()
+        
+        # Detecta mensagens explícitas de instrumental do Genius
+        instrumental_messages = [
+            "this song is an instrumental",
+            "this track is an instrumental", 
+            "instrumental track",
+            "no lyrics available",
+            "purely instrumental",
+            "instrumental version",
+            "instrumental piece"
+        ]
+        
+        for message in instrumental_messages:
+            if message in clean_text:
+                return True
+        
+        # Padrões originais de detecção
+        instrumental_patterns = [
+            r'^[a-z\s]{1,20}$',  # muito pouco texto
+            r'^(la\s+){3,}', r'^(da\s+){3,}', r'^(dee\s+){2,}', r'^(doo\s+){2,}',
+            r'^(oh\s+){3,}', r'^(ah\s+){3,}', r'^(na\s+){3,}', r'^(hey\s+){3,}'
+        ]
+        non_words = ['la', 'da', 'dee', 'doo', 'oh', 'ah', 'na', 'hey', 'mm', 'hmm', 'yeah', 'yo']
+        words = clean_text.split()
+        if len(words) > 0:
+            non_word_ratio = sum(1 for word in words if word.strip() in non_words) / len(words)
+            # Reforço: letra muito curta + muitas vocalizações
+            # Ex.: "dee doo dee doo" → poucas palavras totais e >=70% de vocalizações
+            if (len(words) < 15 and non_word_ratio >= 0.7) or non_word_ratio > 0.8:
+                return True
+        for pattern in instrumental_patterns:
+            if re.search(pattern, clean_text):
+                return True
+        if len(clean_text) < 50:
+            words_unique = set(words)
+            if len(words) > 6 and len(words_unique) <= 3:
+                return True
+        return False
+    
+    def _ensure_early_entry(self, parsed_lyrics: List[Tuple[int, int, str]]) -> List[Tuple[int, int, str]]:
+        """Remove placeholder artificial: nunca exibe 'Aguardando início vocal'."""
+        if not parsed_lyrics:
+            return parsed_lyrics
+        # Não insere mais nenhum aviso, apenas retorna as lyrics reais
+        return parsed_lyrics
+
 # ===== GERENCIADOR DE OFFSET INTELIGENTE =====
 
 class SmartOffsetManager:
-    """Gerencia offsets de forma inteligente e persistente"""
+    """Gerencia offsets de forma inteligente e persistente, agora por seção/bloco."""
     
     def __init__(self, cache_dir: str):
         self.cache_file = os.path.join(cache_dir, "smart_offset_cache.json")
         self.cache: Dict[str, OffsetState] = {}
+        self.section_offsets: Dict[str, Dict[int, int]] = {}  # NOVO: faixa -> {indice_bloco: offset}
         self.current_track_key: Optional[str] = None
         self.load_cache()
     
@@ -326,8 +408,9 @@ class SmartOffsetManager:
             if os.path.exists(self.cache_file):
                 with open(self.cache_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    for key, value in data.items():
+                    for key, value in data.get('track_offsets', {}).items():
                         self.cache[key] = OffsetState(**value)
+                    self.section_offsets = data.get('section_offsets', {})
         except Exception as e:
             print(f"Erro ao carregar cache de offsets: {e}")
     
@@ -335,16 +418,18 @@ class SmartOffsetManager:
         """Salva cache de offsets"""
         try:
             os.makedirs(os.path.dirname(self.cache_file), exist_ok=True)
-            data = {}
+            data = {
+                'track_offsets': {},
+                'section_offsets': self.section_offsets
+            }
             for key, state in self.cache.items():
-                data[key] = {
+                data['track_offsets'][key] = {
                     'base_offset': state.base_offset,
                     'user_offset': state.user_offset,
                     'auto_offset': state.auto_offset,
                     'is_locked': state.is_locked,
                     'confidence': state.confidence
                 }
-            
             with open(self.cache_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
@@ -361,48 +446,55 @@ class SmartOffsetManager:
         # Cria entrada se não existir
         if self.current_track_key not in self.cache:
             self.cache[self.current_track_key] = OffsetState()
+        
+        if self.current_track_key not in self.section_offsets:
+            self.section_offsets[self.current_track_key] = {}
     
-    def get_current_offset(self) -> int:
-        """Retorna offset total da faixa atual"""
+    def get_current_offset(self, progress: int = None, index: int = None) -> int:
+        """Retorna offset total da faixa atual + offset do bloco (se index fornecido)"""
         if not self.current_track_key or self.current_track_key not in self.cache:
             return 0
-        return self.cache[self.current_track_key].total_offset
+        base = self.cache[self.current_track_key].total_offset
+        # Corrige: só soma offset de seção se index for int e existir na seção
+        if index is not None and isinstance(index, int):
+            sec = self.section_offsets.get(self.current_track_key, {}).get(str(index), 0)
+            return base + sec
+        return base
     
-    def adjust_user_offset(self, delta: int):
-        """Ajusta offset do usuário"""
+    def adjust_offset_at_index(self, index: int, delta: int):
+        """Ajusta offset do bloco/verso atual"""
         if not self.current_track_key:
             return
-        
-        if self.current_track_key not in self.cache:
-            self.cache[self.current_track_key] = OffsetState()
-        
-        state = self.cache[self.current_track_key]
-        state.user_offset += delta
-        state.is_locked = True  # Marca como ajustado pelo usuário
-        
+        idx = str(index)
+        if self.current_track_key not in self.section_offsets:
+            self.section_offsets[self.current_track_key] = {}
+        self.section_offsets[self.current_track_key][idx] = self.section_offsets[self.current_track_key].get(idx, 0) + delta
         self.save_cache()
-        print(f"[OFFSET] Ajuste manual: {delta}ms | Total: {state.total_offset}ms")
+        print(f"[OFFSET] Ajuste manual por seção: bloco {index} | delta {delta}ms | total {self.section_offsets[self.current_track_key][idx]}ms")
     
-    def reset_user_offset(self):
-        """Reseta apenas o offset do usuário"""
+    def get_offset_at_index(self, index: int) -> int:
+        if not self.current_track_key:
+            return 0
+        return self.section_offsets.get(self.current_track_key, {}).get(str(index), 0)
+    
+    def reset_all_offsets(self):
         if not self.current_track_key:
             return
-        
-        if self.current_track_key not in self.cache:
-            self.cache[self.current_track_key] = OffsetState()
-        
-        state = self.cache[self.current_track_key]
-        state.user_offset = 0
-        state.is_locked = False
-        
+        if self.current_track_key in self.section_offsets:
+            self.section_offsets[self.current_track_key] = {}
+        if self.current_track_key in self.cache:
+            self.cache[self.current_track_key].user_offset = 0
+            self.cache[self.current_track_key].auto_offset = 0
+            self.cache[self.current_track_key].is_locked = False
         self.save_cache()
-        print(f"[OFFSET] Reset manual | Total: {state.total_offset}ms")
+        print(f"[OFFSET] Todos os offsets resetados para a faixa: {self.current_track_key}")
     
-    def is_user_locked(self) -> bool:
-        """Verifica se o usuário travou o offset"""
-        if not self.current_track_key or self.current_track_key not in self.cache:
-            return False
-        return self.cache[self.current_track_key].is_locked
+    def get_debug_info(self):
+        return {
+            'track_key': self.current_track_key,
+            'track_offset': self.cache.get(self.current_track_key).__dict__ if self.current_track_key in self.cache else None,
+            'section_offsets': self.section_offsets.get(self.current_track_key, {})
+        }
 
 # ===== SISTEMA DE LOGS INTELIGENTE =====
 
@@ -533,7 +625,8 @@ class SmartLyricsWindow(QWidget):
     def init_ui(self):
         """Inicializa interface"""
         self.setWindowTitle('LetrasPIP Smart')
-        self.setGeometry(100, 100, 500, 200)
+        # Janela um pouco maior por padrão (mas o desenho agora é responsivo)
+        self.setGeometry(100, 100, 800, 300)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
@@ -555,7 +648,10 @@ class SmartLyricsWindow(QWidget):
                 redirect_uri=getattr(config, 'SPOTIPY_REDIRECT_URI', ''),
                 cache_path=getattr(config, 'CACHE_FILE', './cache/.spotify_cache')
             ))
+            # Teste imediato da conexão
+            test_playback = self.sp.current_playback()
             self.logger.log('main', "Spotify configurado com sucesso")
+            self.logger.log('api', f"Teste de conexão: {'OK' if test_playback is not None else 'Sem reprodução ativa'}")
         except Exception as e:
             self.logger.log('api', f"Erro ao configurar Spotify: {e}", "ERROR")
             self.sp = None
@@ -567,49 +663,83 @@ class SmartLyricsWindow(QWidget):
         self.timer.start(500)  # 500ms
     
     def setup_tray(self):
-        """Cria a bandeja do sistema com controles de offset"""
+        """Cria a bandeja do sistema com controles de offset avançados"""
         from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
         from PyQt6.QtGui import QIcon, QAction
-        
         # Conecta o timer agora que o método existe
         self.manual_scroll_timer.timeout.connect(self._disable_manual_scroll)
         
         self.tray_icon = QSystemTrayIcon(QIcon("icon.ico"), self)
         self.tray_menu = QMenu()
 
-        self.action_offset_plus = QAction("Aumentar Offset (+500ms)", self)
-        self.action_offset_minus = QAction("Diminuir Offset (-500ms)", self)
-        self.action_offset_reset = QAction("Resetar Offset", self)
+        # Menu minimalista: só ajustes globais
+        self.action_sync_plus = QAction("Adiantar (+0,5s)", self)
+        self.action_sync_minus = QAction("Atrasar (-0,5s)", self)
+        self.action_sync_reset = QAction("Desfazer ajuste", self)
         self.action_quit = QAction("Sair", self)
 
-        self.tray_menu.addAction(self.action_offset_plus)
-        self.tray_menu.addAction(self.action_offset_minus)
-        self.tray_menu.addAction(self.action_offset_reset)
+        self.tray_menu.addAction(self.action_sync_plus)
+        self.tray_menu.addAction(self.action_sync_minus)
+        self.tray_menu.addAction(self.action_sync_reset)
         self.tray_menu.addSeparator()
         self.tray_menu.addAction(self.action_quit)
 
         self.tray_icon.setContextMenu(self.tray_menu)
         self.tray_icon.show()
 
-        self.action_offset_plus.triggered.connect(lambda: self._tray_adjust_offset(+500))
-        self.action_offset_minus.triggered.connect(lambda: self._tray_adjust_offset(-500))
-        self.action_offset_reset.triggered.connect(self._tray_reset_offset)
+        self.action_sync_plus.triggered.connect(lambda: self._tray_adjust_offset_global(+500))
+        self.action_sync_minus.triggered.connect(lambda: self._tray_adjust_offset_global(-500))
+        self.action_sync_reset.triggered.connect(self._tray_reset_offset_global)
         self.action_quit.triggered.connect(QApplication.instance().quit)
 
-    def _tray_adjust_offset(self, delta):
-        if hasattr(self.offset_manager, 'adjust_offset_at_position'):
-            self.offset_manager.adjust_offset_at_position(self.current_progress, delta)
-        elif hasattr(self.offset_manager, 'adjust_user_offset'):
-            self.offset_manager.adjust_user_offset(delta)
-        self.logger.log_user('offset_adjust', f'{delta}ms (tray)')
-        self.update()
-
-    def _tray_reset_offset(self):
+    def _tray_adjust_offset_global(self, delta):
+        """
+        Ajuste inteligente: se o usuário só ajustou globalmente até agora, aplica global.
+        Se já existe ajuste local neste trecho, passa a ajustar só o trecho.
+        Se o usuário alterna muito, sugere (via log) resetar para padronizar.
+        """
+        track_key = getattr(self.offset_manager, 'current_track_key', None)
+        idx = str(self.current_line_index) if self.current_line_index is not None else None
+        # Heurística: se só existe user_offset ou nenhum ajuste local, aplica global
+        section_offsets = getattr(self.offset_manager, 'section_offsets', {})
+        has_local = track_key in section_offsets and section_offsets[track_key]
+        if not has_local:
+            # Ajuste global
+            if hasattr(self.offset_manager, 'cache') and track_key in self.offset_manager.cache:
+                self.offset_manager.cache[track_key].user_offset += delta
+                self.offset_manager.save_cache()
+                self.logger.log_user('offset_adjust_global', f'{delta}ms (tray-smart)')
+        else:
+            # Ajuste local só para o bloco atual
+            if hasattr(self.offset_manager, 'adjust_offset_at_index') and self.current_line_index is not None and self.current_line_index >= 0:
+                self.offset_manager.adjust_offset_at_index(self.current_line_index, delta)
+                self.logger.log_user('offset_adjust_local', f'{delta}ms (tray-smart) bloco {self.current_line_index}')
+        self.update_sync()
+        self.update()  # Redesenha interface
+    
+    def _tray_reset_offset_global(self):
+        """Reset compatível com AdaptiveOffsetManager e SmartOffsetManager"""
+        # Para AdaptiveOffsetManager
         if hasattr(self.offset_manager, 'reset_all_offsets'):
             self.offset_manager.reset_all_offsets()
+            self.logger.log_user('offset_reset_global', 'tray-adaptive')
+        # Para SmartOffsetManager
+        elif hasattr(self.offset_manager, 'cache'):
+            track_key = getattr(self.offset_manager, 'current_track_key', None)
+            if track_key and track_key in self.offset_manager.cache:
+                self.offset_manager.cache[track_key].user_offset = 0
+                if hasattr(self.offset_manager, 'section_offsets') and track_key in self.offset_manager.section_offsets:
+                    self.offset_manager.section_offsets[track_key] = {}
+                self.offset_manager.save_cache()
+                self.logger.log_user('offset_reset_global', 'tray-smart')
+        # Fallback genérico
         elif hasattr(self.offset_manager, 'reset_user_offset'):
             self.offset_manager.reset_user_offset()
-        self.logger.log_user('offset_reset', 'tray')
+            self.logger.log_user('offset_reset_global', 'tray-fallback')
+        else:
+            self.logger.log_user('offset_reset_global', 'não suportado pelo offset_manager atual')
+        
+        self.update_sync()
         self.update()
     
     def get_spotify_status(self) -> Tuple[Optional[str], str, str, int, bool]:
@@ -619,6 +749,7 @@ class SmartLyricsWindow(QWidget):
         
         try:
             playback = self.sp.current_playback()
+            
             if not playback or not playback.get('item'):
                 return None, "", "", 0, False
             
@@ -631,27 +762,54 @@ class SmartLyricsWindow(QWidget):
             return track_id, title, artist, progress, is_playing
             
         except Exception as e:
+            print(f"[ERROR] Erro ao buscar status Spotify: {e}")
             self.logger.log('api', f"Erro ao buscar status Spotify: {e}", "WARNING")
             return None, "", "", 0, False
-    
+
     def update_display(self):
-        """Atualização principal da interface"""
-        track_id, title, artist, progress, is_playing = self.get_spotify_status()
+        """Atualização principal - evita chamadas duplicadas"""
+        if getattr(self, '_updating', False):
+            return  # Evita recursão
         
-        # Atualiza progresso atual
-        self.current_progress = progress
+        self._updating = True
+        try:
+            track_id, title, artist, progress, is_playing = self.get_spotify_status()
+            
+            if not is_playing:
+                self.current_progress = 0
+                self.current_line_index = -1
+                self.is_playing = False
+                self.update()
+                return
+            
+            self.is_playing = True
+            
+            # Só atualiza se mudou significativamente
+            if abs(progress - getattr(self, '_last_progress', 0)) < 100:
+                return  # Skip update se mudança < 100ms
+                
+            self._last_progress = progress
+            self.current_progress = progress
+            
+            # Busca letra se necessário
+            if artist and title:
+                track_key = f"{artist.lower()} - {title.lower()}"
+                
+                current_key = getattr(self, '_current_track_key', '')
+                
+                if track_key != current_key:
+                    self._current_track_key = track_key
+                    self.handle_track_change(track_id, title, artist)
+                else:
+                    self.update_sync()
+                    self.update()
+            
+            else:
+                self.current_lyrics = None
+                self.update()
         
-        # Verifica mudança de faixa
-        if track_id != self.current_track_id:
-            self.logger.log('main', f"Nova faixa detectada: {artist} - {title}")
-            self.handle_track_change(track_id, title, artist)
-        
-        # Atualiza sincronização sempre que há letras (mesmo pausado)
-        if self.current_lyrics:
-            self.update_sync()
-        
-        self.is_playing = is_playing
-        self.update()  # Redesenha interface
+        finally:
+            self._updating = False
     
     def handle_track_change(self, track_id: Optional[str], title: str, artist: str):
         """Lida com mudança de faixa - exibe letra do cache instantaneamente e busca nova em thread"""
@@ -704,24 +862,13 @@ class SmartLyricsWindow(QWidget):
         
         # Aplica offset total
         try:
-            total_offset = self.offset_manager.get_current_offset(self.current_progress)
+            total_offset = self.offset_manager.get_current_offset(self.current_progress, self.current_line_index)
         except TypeError:
-            total_offset = self.offset_manager.get_current_offset()
+            total_offset = self.offset_manager.get_current_offset(self.current_progress)
         progress_with_offset = self.current_progress + total_offset
         
         # Encontra linha atual
-        new_index = -1
-        for i, (start, end, text) in enumerate(self.current_lyrics.parsed_lyrics):
-            if start <= progress_with_offset < end:
-                new_index = i
-                break
-        
-        # Se não encontrou, pega a última válida
-        if new_index == -1:
-            for i in reversed(range(len(self.current_lyrics.parsed_lyrics))):
-                if self.current_lyrics.parsed_lyrics[i][0] <= progress_with_offset:
-                    new_index = i
-                    break
+        new_index = self.get_current_synced_index(progress_with_offset)
         
         # Atualiza se mudou
         if new_index != self.current_line_index:
@@ -736,6 +883,23 @@ class SmartLyricsWindow(QWidget):
         else:
             self.current_line_phase = 0.0
     
+    def get_current_synced_index(self, current_time_ms: int) -> int:
+        """Retorna o índice do verso sincronizado para o tempo atual.
+        Se o tempo for antes do primeiro timestamp, retorna 0 para exibir o primeiro verso imediatamente."""
+        parsed = self.current_lyrics.parsed_lyrics
+        if not parsed:
+            return -1
+        for i, (start, end, _) in enumerate(parsed):
+            if current_time_ms < start:
+                return max(0, i - 1)
+            if start <= current_time_ms < end:
+                return i
+        return len(parsed) - 1
+
+    def update_current_line_index(self, current_time_ms: int):
+        """Atualiza o índice da linha atual sincronizada, exibindo o primeiro verso desde o início da música."""
+        self.current_line_index = self.get_current_synced_index(current_time_ms)
+
     def paintEvent(self, event):
         """Renderiza interface"""
         painter = QPainter(self)
@@ -794,36 +958,30 @@ class SmartLyricsWindow(QWidget):
         painter.drawText(rect, int(flags), message)
     
     def draw_synced_lyrics(self, painter: QPainter, warning: bool = False):
-        """Desenha letras sincronizadas com linha atual fixa no centro"""
+        """Desenha letras sincronizadas com 3 slots (anterior distinto, central, próximo distinto),
+        pulando repetições consecutivas do bloco central."""
         if self.current_line_index < 0 or self.current_line_index >= len(self.current_lyrics.parsed_lyrics):
             return
-        
-        center_x = self.rect().center().x()
+        spacing = max(36, int(self.height() * 0.18))
         center_y = self.rect().center().y()
-        
-        # Rolagem suave: as linhas adjacentes se movem, a atual fica fixa
-        phase = getattr(self, 'current_line_phase', 0.0)
-        # Inverte a lógica: linhas anteriores sobem, próximas descem
-        prev_offset = int(self.scroll_pixels * phase)  # sobe conforme avança
-        next_offset = -int(self.scroll_pixels * phase)  # desce conforme avança
-        
-        # Linhas para desenhar: anterior, atual, próxima
-        lines = []
-        if self.current_line_index - 1 >= 0:
-            lines.append(('prev', self.current_lyrics.parsed_lyrics[self.current_line_index - 1][2]))
-        lines.append(('curr', self.current_lyrics.parsed_lyrics[self.current_line_index][2]))
-        if self.current_line_index + 1 < len(self.current_lyrics.parsed_lyrics):
-            lines.append(('next', self.current_lyrics.parsed_lyrics[self.current_line_index + 1][2]))
-        
-        # Posições Y: linha atual sempre fixa no centro
-        y_positions = {
-            'prev': center_y - self.line_spacing + prev_offset,
-            'curr': center_y,  # SEMPRE FIXA NO CENTRO
-            'next': center_y + self.line_spacing + next_offset,
-        }
-        
-        for role, text in lines:
-            if role == 'curr':
+        # Central
+        central_text = self.current_lyrics.parsed_lyrics[self.current_line_index][2]
+        # Busca anterior distinto
+        prev_idx = self.current_line_index - 1
+        while prev_idx >= 0 and self.current_lyrics.parsed_lyrics[prev_idx][2] == central_text:
+            prev_idx -= 1
+        # Busca próximo distinto
+        next_idx = self.current_line_index + 1
+        while next_idx < len(self.current_lyrics.parsed_lyrics) and self.current_lyrics.parsed_lyrics[next_idx][2] == central_text:
+            next_idx += 1
+        # Monta lista de índices para slots: [anterior, central, próximo]
+        slot_indices = [prev_idx, self.current_line_index, next_idx]
+        for rel_idx, idx in zip([-1, 0, 1], slot_indices):
+            if 0 <= idx < len(self.current_lyrics.parsed_lyrics):
+                text = self.current_lyrics.parsed_lyrics[idx][2]
+            else:
+                text = ""
+            if rel_idx == 0:
                 font = QFont('Arial', 22, QFont.Weight.Bold)
                 color = QColor(self.text_color)
                 if warning:
@@ -832,16 +990,47 @@ class SmartLyricsWindow(QWidget):
                 font = QFont('Arial', int(22 * self.prev_next_scale))
                 color = QColor(self.text_color)
                 color.setAlpha(self.prev_next_alpha)
-            
+
             painter.setFont(font)
             painter.setPen(QPen(color))
-            # Texto centralizado
             metrics = painter.fontMetrics()
-            text_width = metrics.horizontalAdvance(text)
-            text_height = metrics.ascent()
-            x = center_x - text_width // 2
-            y = y_positions[role] + text_height // 2
-            painter.drawText(x, y, text)
+            text_height = metrics.height()
+
+            # Calcular posição Y com melhor espaçamento
+            y_pos = center_y + rel_idx * spacing
+            
+            # Criar retângulo com margens adequadas e altura suficiente
+            margin = 40
+            
+            # Calcular altura real do texto com word wrap
+            temp_rect = QtCore.QRect(margin, 0, self.width() - 2 * margin, 1000)  # Altura temporária grande
+            actual_text_rect = metrics.boundingRect(temp_rect, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap, text)
+            actual_height = actual_text_rect.height()
+            
+            # Usar altura real + padding
+            rect_height = max(text_height + 16, actual_height + 20)  # Padding extra para multi-linha
+            top = y_pos - rect_height // 2
+            
+            # Garantir que o retângulo não saia da janela com margem de segurança
+            min_top = 10
+            max_bottom = self.height() - 10
+            
+            if top < min_top:
+                top = min_top
+            if top + rect_height > max_bottom:
+                top = max_bottom - rect_height
+                # Se ainda não couber, reduzir altura
+                if top < min_top:
+                    top = min_top
+                    rect_height = max_bottom - min_top
+                
+            rect = QtCore.QRect(margin, top, self.width() - 2 * margin, rect_height)
+            
+            # Usar TextWordWrap com AlignCenter para melhor quebra de linha
+            flags = Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap
+            
+            # Desenhar com retângulo bem definido
+            painter.drawText(rect, int(flags), text)
     
     def draw_plain_lyrics(self, painter: QPainter):
         """Desenha letras de texto simples centralizadas"""
@@ -860,12 +1049,12 @@ class SmartLyricsWindow(QWidget):
         try:
             # Verificar se get_current_offset aceita parâmetros
             import inspect
-            if hasattr(self.offset_manager, 'get_current_offset'):
+            if hasattr(self, 'offset_manager'):
                 sig = inspect.signature(self.offset_manager.get_current_offset)
                 if len(sig.parameters) > 1:  # tem parâmetros além de self
-                    total_offset = self.offset_manager.get_current_offset(self.current_progress)
+                    total_offset = self.offset_manager.get_current_offset(self.current_progress, self.current_line_index)
                 else:
-                    total_offset = self.offset_manager.get_current_offset()
+                    total_offset = self.offset_manager.get_current_offset(self.current_progress)
             else:
                 total_offset = 0
         except Exception:
@@ -873,6 +1062,27 @@ class SmartLyricsWindow(QWidget):
         
         offset_text = f"Offset: {total_offset}ms"
         painter.drawText(10, 16, offset_text)
+
+    def get_lyrics_status_message(self):
+        """
+        Retorna uma string curta com a fonte e tipo da letra atual.
+        """
+        if not self.current_lyrics:
+            return "Buscando letra..."
+        q = self.current_lyrics.quality
+        src = (self.current_lyrics.source or "").capitalize()
+        if q.name.startswith("SYNCED"):
+            return f"Letra sincronizada ({src})"
+        elif q == LyricsQuality.PLAIN_TEXT:
+            return f"Letra simples ({src})"
+        elif q == LyricsQuality.INSTRUMENTAL:
+            return "Instrumental detectado"
+        elif q == LyricsQuality.NOT_FOUND:
+            return "Letra não encontrada"
+        elif q == LyricsQuality.SEARCHING:
+            return "Buscando letra..."
+        else:
+            return "Status desconhecido"
 
     def mousePressEvent(self, event):
         """Inicia arrastar janela"""
@@ -896,7 +1106,7 @@ class SmartLyricsWindow(QWidget):
         """Desabilita rolagem manual temporariamente"""
         if hasattr(self, 'manual_scroll_disabled'):
             self.manual_scroll_disabled = True
-            self.logger.log_user("🚫 Rolagem manual desabilitada temporariamente")
+            self.logger.log_user(" Rolagem manual desabilitada temporariamente")
         else:
             # Fallback se atributo não existir
             self.manual_scroll_disabled = True
