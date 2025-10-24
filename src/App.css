@@ -1,0 +1,93 @@
+/* Ultra minimalist app - no borders, no background, draggable window */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* Disable drag by default */
+body {
+  -webkit-app-region: no-drag;
+}
+
+/* Enable drag on lyrics container - drag nas letras */
+.floating-lyrics-container {
+  -webkit-app-region: drag;
+  cursor: move;
+  pointer-events: auto !important;
+}
+
+/* Disable drag during scroll mode */
+.floating-lyrics-container.scroll-mode {
+  -webkit-app-region: no-drag;
+  cursor: default;
+}
+
+/* Remove all window decorations */
+.app-container {
+  width: 100vw;
+  height: 100vh;
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Floating lyrics styling - pointer-events removido para permitir drag */
+
+.lyric-line {
+  text-align: center;
+  word-wrap: break-word;
+  max-width: 350px;
+  margin: 0 auto;
+  line-height: 1.2;
+  padding: 2px 4px;
+}
+
+/* Instrumental track styling */
+.lyric-line.instrumental {
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 500;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+  opacity: 0.9;
+}
+
+/* Current line styling */
+.lyric-line.current {
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 600;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* Previous/next lines */
+.lyric-line.previous,
+.lyric-line.next {
+  color: #cccccc;
+  font-size: 16px;
+  opacity: 0.7;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+/* Draggable window area */
+[data-tauri-drag-region] {
+  cursor: move;
+  user-select: none;
+}
+
+
+/* Subtle drag indicator on hover */
+[data-tauri-drag-region]:hover {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(2px);
+  transition: all 0.2s ease;
+}

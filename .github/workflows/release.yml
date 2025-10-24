@@ -1,0 +1,110 @@
+name: 🚀 Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 🧪 Pre-Release Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: 📥 Install dependencies
+      run: npm ci
+      
+    - name: 🧪 Run all tests
+      run: npm run test:coverage
+      
+    - name: 🏗️ Test build
+      run: npm run build
+
+  build-tauri:
+    name: 🏗️ Build Tauri App
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos-latest, ubuntu-20.04, windows-latest]
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: 📥 Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 🦀 Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 🔧 Install dependencies (Ubuntu only)
+        if: matrix.platform == 'ubuntu-20.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: 📥 Install frontend dependencies
+        run: npm ci
+
+      - name: 🧪 Run tests before build
+        run: npm test
+
+      - name: 🏗️ Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: 'LetrasPIP v__VERSION__'
+          releaseBody: 'See the assets to download this version and install.'
+          releaseDraft: true
+          prerelease: false
+
+  deploy-web:
+    name: 🌐 Deploy Web Version
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v4
+      
+    - name: 📦 Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: 📥 Install dependencies
+      run: npm ci
+      
+    - name: 🏗️ Build for web
+      run: npm run build
+      
+    - name: 🚀 Deploy to GitHub Pages
+      uses: peaceiris/actions-gh-pages@v3
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: ./dist
+        
+    - name: 📋 Deploy summary
+      run: |
+        echo "## 🌐 Deployment Results" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Web version deployed to GitHub Pages" >> $GITHUB_STEP_SUMMARY
+        echo "🔗 Available at: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" >> $GITHUB_STEP_SUMMARY
