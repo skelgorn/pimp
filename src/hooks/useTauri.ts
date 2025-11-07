@@ -359,9 +359,10 @@ export function useTauriEvents() {
         try {
           // Get current track from Spotify
           const currentTrack = await getCurrentTrack();
-          console.log('🎵 Polling result:', currentTrack);
+          console.log('🎵 Polling result:', currentTrack ? `Track: ${currentTrack.name} - Playing: ${currentTrack.is_playing}` : 'NULL');
           
           if (currentTrack) {
+            console.log('✅ TRACK DETECTED - ID:', currentTrack.id, 'Name:', currentTrack.name);
             // Mark as connected when we get track data
             setConnected(true);
             setError(null);
@@ -452,14 +453,18 @@ export function useTauriEvents() {
               
             } else {
               // No track playing - increment counter for potential token refresh
+              console.log('❌ NO TRACK DETECTED - currentTrack is null/undefined');
               noDevicesCount++;
               
               if (lastTrackId !== null) {
-                console.log('⏹️ No track playing');
-                lastTrackId = null;
-                setCurrentTrack(null);
-                setLyrics(null);
-                setProgress(0);
+                console.log('⏹️ No track playing - BUT KEEPING LYRICS FOR NOW (lastTrackId was:', lastTrackId, ')');
+                // NÃO limpar as letras imediatamente - manter para visualização
+                // lastTrackId = null;
+                // setCurrentTrack(null);
+                // setLyrics(null);
+                // setProgress(0);
+              } else {
+                console.log('⏹️ Still no track playing (noDevicesCount:', noDevicesCount, ')');
               }
               
               // Try token refresh if no devices detected for too long

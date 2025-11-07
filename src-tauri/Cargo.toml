@@ -19,6 +19,10 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
+cfg-if = "1.0"
+cocoa = { version = "0.24", optional = true }
+gtk = { version = "0.10", package = "gtk4", optional = true }
+
 tauri-plugin-opener = "2"
 tauri-plugin-store = "2"
 tauri-plugin-global-shortcut = "2"
@@ -40,4 +44,8 @@ dirs = "5.0"
 regex = "1.10"
 urlencoding = "2.1"
 thiserror = "1.0"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi", "Win32_UI_Controls"] }
+
 

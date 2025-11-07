@@ -1,8 +1,7 @@
 // Ultra minimalist floating lyrics - 3 verses only, 100% transparent background
 
 import React, { useMemo, useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useAppStore, selectLyrics, selectSyncState, selectProgress, selectIsConnected, selectError } from '../store';
+import { useAppStore, selectLyrics, selectSyncState, selectProgress, selectIsConnected } from '../store';
 
 interface LyricsDisplayProps {
   // No props needed for ultra minimalist design
@@ -13,7 +12,29 @@ export const LyricsDisplay: React.FC<LyricsDisplayProps> = () => {
   const syncState = useAppStore(selectSyncState);
   const progress = useAppStore(selectProgress);
   const isConnected = useAppStore(selectIsConnected);
-  const error = useAppStore(selectError);
+
+  // LOG AGRESSIVO PARA DEBUG
+  console.log('🔍 LyricsDisplay RENDER:', {
+    hasLyrics: !!lyrics,
+    blocksCount: lyrics?.blocks?.length ?? 0,
+    progress,
+    isConnected,
+    isPaused: syncState?.is_paused,
+    lyricsObject: lyrics ? { quality: lyrics.quality, source: lyrics.source } : null
+  });
+
+  // LOG QUANDO COMPONENTE É DESMONTADO
+  useEffect(() => {
+    console.log('✅ LyricsDisplay MOUNTED');
+    return () => {
+      console.log('❌ LyricsDisplay UNMOUNTED - Component being destroyed!');
+    };
+  }, []);
+
+  // LOG QUANDO LYRICS MUDAM
+  useEffect(() => {
+    console.log('🔄 LYRICS CHANGED:', lyrics ? `${lyrics.blocks?.length} blocks` : 'NULL');
+  }, [lyrics]);
 
   const [manualScrollOffset, setManualScrollOffset] = useState(0);
 
@@ -35,8 +56,8 @@ export const LyricsDisplay: React.FC<LyricsDisplayProps> = () => {
       }
     }
     if (adjustedProgress < lyrics.blocks[0].start) {
-      console.log('⏰ Waiting for first lyric at:', lyrics.blocks[0].start);
-      return -1; // Aguardando primeira letra
+      console.log('⏰ Waiting for first lyric at:', lyrics.blocks[0].start, '- SHOWING FIRST LYRIC ANYWAY');
+      return 0; // MUDANÇA: Mostrar primeira letra imediatamente ao invés de -1
     }
     console.log('🔚 At end of song');
     return lyrics.blocks.length - 1;
@@ -78,102 +99,6 @@ export const LyricsDisplay: React.FC<LyricsDisplayProps> = () => {
   }, [lyrics, currentBlockIndex, manualScrollOffset]);
 
   // Handle different connection states
-  if (!isConnected) {
-    let msg = 'Connecting to Spotify...';
-    if (error?.includes('token')) msg = 'Connect to Spotify';
-    else if (error?.includes('private')) msg = 'Private session detected';
-    else if (error?.includes('permission')) msg = 'Spotify permissions required';
-    return (
-      <div
-        className="floating-lyrics-container"
-        style={{
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          zIndex: 9999,
-          pointerEvents: 'none',
-          userSelect: 'none',
-          fontFamily: 'Segoe UI, system-ui, sans-serif',
-          color: '#ffffff',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-          textAlign: 'center',
-          fontSize: '18px',
-          lineHeight: '1.6',
-          background: 'transparent'
-        }}
-      >
-        <div className="lyric-line previous"></div>
-        <div className="lyric-line current">{msg}</div>
-        <div className="lyric-line next"></div>
-      </div>
-    );
-  }
-
-  if (lyrics?.quality === 'Instrumental' || lyrics?.blocks.length === 0) {
-    return (
-      <div
-        className="floating-lyrics-container"
-        style={{
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          zIndex: 10000,
-          pointerEvents: 'auto',
-          userSelect: 'none',
-          WebkitUserSelect: 'none',
-          MozUserSelect: 'none',
-          msUserSelect: 'none'
-        }}
-      >
-        <div className="lyric-line previous"></div>
-        <div className="lyric-line current instrumental">🎵 Instrumental Track 🎵</div>
-        <div className="lyric-line next"></div>
-      </div>
-    );
-  }
-
-  if (syncState?.is_paused) {
-    return (
-      <div
-        className="floating-lyrics-container"
-        style={{
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          zIndex: 10000,
-          pointerEvents: 'none',
-          userSelect: 'none',
-          background: 'transparent'
-        }}
-      >
-        <div
-          data-tauri-drag-region
-          style={{
-            position: 'absolute',
-            top: '-10px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: '40px',
-            height: '20px',
-            pointerEvents: 'auto',
-            cursor: 'move',
-            background: 'rgba(255, 255, 255, 0.1)',
-            borderRadius: '10px',
-            opacity: 0,
-            transition: 'opacity 0.2s'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.opacity = '0.3'}
-          onMouseLeave={(e) => e.currentTarget.style.opacity = '0'}
-        />
-        <div className="lyric-line previous"></div>
-        <div className="lyric-line current paused">⏸️ Música Pausada</div>
-        <div className="lyric-line next"></div>
-      </div>
-    );
-  }
 
   const threeLines = useMemo(() => {
     const effectiveIndex = currentBlockIndex + manualScrollOffset;
@@ -195,139 +120,93 @@ export const LyricsDisplay: React.FC<LyricsDisplayProps> = () => {
     };
   }, [lyrics, currentBlockIndex, manualScrollOffset]);
 
+  // SEMPRE renderizar - NUNCA retornar null
+  const hasLyrics = lyrics && lyrics.blocks && lyrics.blocks.length > 0;
+  
+  // Determinar o conteúdo a exibir
+  let displayContent;
+  
+  if (!hasLyrics) {
+    console.log('📭 NO LYRICS - showing waiting message');
+    displayContent = {
+      previous: '',
+      current: 'Waiting for music...',
+      next: ''
+    };
+  } else if (lyrics.quality === 'Instrumental' || lyrics.blocks.length === 0) {
+    console.log('🎵 INSTRUMENTAL TRACK');
+    displayContent = {
+      previous: '',
+      current: '🎵 Instrumental Track 🎵',
+      next: ''
+    };
+  } else {
+    console.log('✅ SHOWING LYRICS - threeLines:', threeLines);
+    displayContent = threeLines;
+  }
+
   return (
-    <div>
-      {/* DEBUG BLOCK - Remova depois de analisar */}
-      <div style={{background: '#222', color: '#fff', fontSize: 12, padding: 8, marginBottom: 8, borderRadius: 8, opacity: 0.9}}>
-        <div><b>DEBUG LyricsDisplay</b></div>
-        <div>lyrics: {lyrics ? 'OK' : 'null'}</div>
-        <div>lyrics.blocks.length: {lyrics?.blocks?.length ?? 'null'}</div>
-        <div>currentBlockIndex: {currentBlockIndex}</div>
-        <div>isConnected: {String(isConnected)}</div>
-        <div>threeLines: {JSON.stringify(threeLines)}</div>
-      </div>
-      <div
-        className="floating-lyrics-container"
-        style={{
-          position: 'fixed',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          zIndex: 9999,
-          pointerEvents: 'none',
-          userSelect: 'none',
-          fontFamily: 'Segoe UI, system-ui, sans-serif',
-          color: '#ffffff',
-          textShadow: '2px 2px 4px rgba(0,0,0,0.8)',
-          textAlign: 'center',
-          fontSize: '18px',
-          lineHeight: '1.6'
-        }}
-      >
-        {/* Small drag handle - only this area allows dragging */}
-        <div
-          data-tauri-drag-region
-          style={{
-            position: 'absolute',
-            top: '-10px',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: '40px',
-            height: '20px',
-            pointerEvents: 'auto',
-            cursor: 'move',
-            background: 'rgba(255, 255, 255, 0.1)',
-            borderRadius: '10px',
-            opacity: 0,
-            transition: 'opacity 0.2s'
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.opacity = '0.3'}
-          onMouseLeave={(e) => e.currentTarget.style.opacity = '0'}
-        />
-        
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={`${currentBlockIndex}-${manualScrollOffset}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            style={{ textAlign: 'center' }}
-          >
-            {/* Previous line */}
-            <div
-              className="lyric-line previous"
-              style={{
-                color: 'rgba(255, 255, 255, 0.5)',
-                fontSize: '14px',
-                fontWeight: '400',
-                textShadow: '2px 2px 4px rgba(0, 0, 0, 0.8)',
-                marginBottom: '4px',
-                minHeight: '18px',
-                pointerEvents: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                MozUserSelect: 'none',
-                msUserSelect: 'none',
-                whiteSpace: 'pre-line',
+    <div className="lyrics-display" style={{
+      width: '100vw',
+      height: '100vh',
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      zIndex: 1000,
+            display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      pointerEvents: 'none',
+      border: 'none',
+      padding: 0,
+      gap: 0,
+      overflow: 'visible',
+    }}>
+      <div style={{
+        color: '#bbb',
+        fontSize: 28,
+        opacity: 0.44,
+        minHeight: 32,
+        marginBottom: 0,
+        width: '100vw',
+        textAlign: 'center',
+        textShadow: '2px 2px 8px #000',
+        pointerEvents: 'none',
+        userSelect: 'none',
+        lineHeight: 1.2,
                 overflow: 'visible',
-                width: 'auto',
-                maxWidth: '95vw',
-                lineHeight: 1.4
-              }}
-            >
-              {threeLines.previous}
-            </div>
-            {/* Current line */}
-            <div
-              className="lyric-line current"
-              style={{
-                color: 'rgba(255, 255, 255, 1)',
-                fontSize: '24px',
-                fontWeight: '700',
-                textShadow: '3px 3px 6px rgba(0, 0, 0, 0.9)',
-                marginBottom: '8px',
-                minHeight: '32px',
-                transform: 'scale(1.1)',
-                pointerEvents: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                MozUserSelect: 'none',
-                msUserSelect: 'none',
-                whiteSpace: 'pre-line',
+      }}>{displayContent.previous || ''}</div>
+      <div style={{
+        color: '#fff',
+        fontSize: 54,
+        fontWeight: 700,
+        minHeight: 54,
+        margin: '10px 0',
+        width: '100vw',
+        textAlign: 'center',
+        textShadow: '4px 4px 16px #000, 0 2px 8px #222',
+        letterSpacing: 1,
+        lineHeight: 1.22,
+        borderRadius: 12,
+        pointerEvents: 'none',
+        userSelect: 'none',
                 overflow: 'visible',
-                width: 'auto',
-                maxWidth: '95vw',
-                lineHeight: 1.4
-              }}
-            >
-              {threeLines.current}
-            </div>
-            {/* Next line */}
-            <div
-              className="lyric-line next"
-              style={{
-                color: 'rgba(255, 255, 255, 0.6)',
-                fontSize: '18px',
-                fontWeight: '400',
-                textShadow: '2px 2px 4px rgba(0, 0, 0, 0.8)',
-                minHeight: '24px',
-                pointerEvents: 'none',
-                userSelect: 'none',
-                WebkitUserSelect: 'none',
-                MozUserSelect: 'none',
-                msUserSelect: 'none',
-                whiteSpace: 'pre-line',
+      }}>{displayContent.current || 'SEM LETRA'}</div>
+      <div style={{
+        color: '#bbb',
+        fontSize: 28,
+        opacity: 0.44,
+        minHeight: 32,
+        marginTop: 0,
+        width: '100vw',
+        textAlign: 'center',
+        textShadow: '2px 2px 8px #000',
+        pointerEvents: 'none',
+        userSelect: 'none',
+        lineHeight: 1.2,
                 overflow: 'visible',
-                width: 'auto',
-                maxWidth: '95vw',
-                lineHeight: 1.4
-              }}
-            >
-              {threeLines.next}
-            </div>
-          </motion.div>
-        </AnimatePresence>
-      </div>
+      }}>{displayContent.next || ''}</div>
     </div>
   );
 };

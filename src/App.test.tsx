@@ -33,6 +33,11 @@ vi.mock('framer-motion', () => ({
         {children}
       </div>
     ),
+    button: ({ children, className, ...props }: any) => (
+      <button className={className} {...props}>
+        {children}
+      </button>
+    ),
   },
   AnimatePresence: ({ children }: any) => <>{children}</>,
 }));
@@ -88,7 +93,7 @@ describe('App Component', () => {
 
   it('shows connection status indicator when disconnected', () => {
     vi.mocked(useAppStore).mockImplementation((selector: any) => {
-      const state = { ...mockStore, isConnected: false };
+      const state = { ...mockStore, isConnected: false, syncState: { ...mockStore.syncState, global_offset: -100 } };
       if (selector === useAppStore.getState) {
         return { setError: mockStore.setError };
       }
@@ -104,7 +109,7 @@ describe('App Component', () => {
 
   it('shows connection status indicator when connected', () => {
     vi.mocked(useAppStore).mockImplementation((selector: any) => {
-      const state = { ...mockStore, isConnected: true };
+      const state = { ...mockStore, isConnected: true, syncState: { ...mockStore.syncState, global_offset: 100 } };
       if (selector === useAppStore.getState) {
         return { setError: mockStore.setError };
       }
@@ -249,9 +254,23 @@ describe('App Component', () => {
   });
 
   it('applies correct CSS classes for connection status', () => {
+    const mockTrack = {
+      id: 'test-track-id',
+      name: 'Test Song',
+      artist: 'Test Artist',
+      album: { name: 'Test Album', images: [] },
+      duration_ms: 180000,
+      is_playing: true,
+    };
+
     // Teste desconectado
     vi.mocked(useAppStore).mockImplementation((selector: any) => {
-      const state = { ...mockStore, isConnected: false };
+      const state = { 
+        ...mockStore, 
+        currentTrack: mockTrack,
+        isConnected: false, 
+        syncState: { ...mockStore.syncState, global_offset: -100 } 
+      };
       if (selector === useAppStore.getState) {
         return { setError: mockStore.setError };
       }
@@ -260,12 +279,22 @@ describe('App Component', () => {
 
     const { rerender } = render(<App />);
 
-    let statusIndicator = document.querySelector('.bg-red-500\\/20');
-    expect(statusIndicator).toBeInTheDocument();
+    // Verifica ícone de desconectado
+    let wifiOffIcon = document.querySelector('.lucide-wifi-off');
+    expect(wifiOffIcon).toBeInTheDocument();
+    
+    // Verifica badge de offset negativo
+    let offsetBadge = document.querySelector('.bg-red-500\\/20');
+    expect(offsetBadge).toBeInTheDocument();
 
     // Teste conectado
     vi.mocked(useAppStore).mockImplementation((selector: any) => {
-      const state = { ...mockStore, isConnected: true };
+      const state = { 
+        ...mockStore, 
+        currentTrack: mockTrack,
+        isConnected: true, 
+        syncState: { ...mockStore.syncState, global_offset: 100 } 
+      };
       if (selector === useAppStore.getState) {
         return { setError: mockStore.setError };
       }
@@ -274,7 +303,12 @@ describe('App Component', () => {
 
     rerender(<App />);
 
-    statusIndicator = document.querySelector('.bg-green-500\\/20');
-    expect(statusIndicator).toBeInTheDocument();
+    // Verifica ícone de conectado
+    let wifiIcon = document.querySelector('.lucide-wifi');
+    expect(wifiIcon).toBeInTheDocument();
+    
+    // Verifica badge de offset positivo
+    offsetBadge = document.querySelector('.bg-green-500\\/20');
+    expect(offsetBadge).toBeInTheDocument();
   });
 });

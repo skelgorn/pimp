@@ -148,6 +148,62 @@ pub fn run() {
             });
 
             info!("LetrasPIP initialized successfully");
+            
+            // Abrir DevTools em modo debug
+            #[cfg(debug_assertions)]
+            {
+                use tauri::Manager;
+                if let Some(window) = app.get_webview_window("main") {
+                    window.open_devtools();
+                    info!("🔍 DevTools opened");
+                }
+            }
+            
+            // Configurar transparência do Windows com delay para garantir timing correto
+            #[cfg(target_os = "windows")]
+            {
+                use tauri::Manager;
+                let app_handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        use windows::Win32::Foundation::{HWND, COLORREF, RECT};
+                        use windows::Win32::Graphics::Dwm::DwmExtendFrameIntoClientArea;
+                        use windows::Win32::Graphics::Gdi::{CreateRectRgn, SetWindowRgn};
+                        use windows::Win32::UI::Controls::MARGINS;
+                        use windows::Win32::UI::WindowsAndMessaging::{
+                            GetWindowLongPtrW, SetWindowLongPtrW, SetLayeredWindowAttributes, 
+                            GetClientRect, GWL_EXSTYLE, LWA_COLORKEY, LWA_ALPHA, 
+                            WS_EX_LAYERED, WS_EX_COMPOSITED,
+                        };
+                        unsafe {
+                            let hwnd = HWND(window.hwnd().unwrap().0 as _);
+                            let mut rect = RECT::default();
+                            let _ = GetClientRect(hwnd, &mut rect);
+                            let hrgn = CreateRectRgn(0, 0, rect.right, rect.bottom);
+                            let _ = SetWindowRgn(hwnd, hrgn, true);
+                            let mut ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
+                            ex_style |= WS_EX_LAYERED.0 | WS_EX_COMPOSITED.0;
+                            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex_style as isize);
+                            let margins = MARGINS {
+                                cxLeftWidth: -1,
+                                cxRightWidth: -1,
+                                cyTopHeight: -1,
+                                cyBottomHeight: -1,
+                            };
+                            let _ = DwmExtendFrameIntoClientArea(hwnd, &margins as *const _);
+                            let transparent_color = COLORREF(0x00000000);
+                            let _ = SetLayeredWindowAttributes(
+                                hwnd,
+                                transparent_color,
+                                255,
+                                LWA_COLORKEY | LWA_ALPHA,
+                            );
+                        }
+                    }
+                });
+            }
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

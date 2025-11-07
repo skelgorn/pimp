@@ -1,0 +1,108 @@
+/* TRANSPARÊNCIA TOTAL - Remover qualquer borda/background */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  background-color: transparent !important;
+  overflow: hidden;
+}
+
+/* Forçar transparência no body com propriedades adicionais */
+body {
+  background: transparent !important;
+  background-color: transparent !important;
+  -webkit-app-region: drag;
+  /* Remove qualquer sombra ou borda que o navegador possa adicionar */
+  box-shadow: none !important;
+  border: none !important;
+  outline: none !important;
+}
+
+/* Container principal da aplicação */
+.app {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background: transparent !important;
+  pointer-events: none; /* Permite clicar através de áreas vazias */
+}
+
+/* Container das letras */
+.lyrics-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto; /* Reativa cliques na área das letras */
+  padding: 20px;
+  background: transparent !important;
+}
+
+/* Estilos das linhas de letra */
+.lyric-line {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  text-align: center;
+  white-space: nowrap;
+  /* Sombra suave para legibilidade */
+  text-shadow: 
+    2px 2px 4px rgba(0, 0, 0, 0.8),
+    0 0 8px rgba(0, 0, 0, 0.6);
+  transition: all 0.3s ease;
+  background: transparent !important;
+}
+
+.lyric-line.previous {
+  opacity: 0.4;
+  font-size: 24px;
+}
+
+.lyric-line.current {
+  opacity: 1;
+  font-size: 36px;
+  color: #00ff88; /* Verde vibrante para linha atual */
+  text-shadow: 
+    2px 2px 6px rgba(0, 0, 0, 0.9),
+    0 0 12px rgba(0, 255, 136, 0.4),
+    0 0 20px rgba(0, 255, 136, 0.2);
+}
+
+.lyric-line.next {
+  opacity: 0.4;
+  font-size: 24px;
+}
+
+/* Loading e mensagens de erro */
+.loading, .error, .no-lyrics {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 24px;
+  color: #ffffff;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+  background: transparent !important;
+}
+
+/* Remove qualquer scrollbar */
+::-webkit-scrollbar {
+  display: none;
+}
+
+/* Garantir que nenhum elemento tenha background */
+div, span, p, h1, h2, h3, h4, h5, h6 {
+  background: transparent !important;
+  background-color: transparent !important;
+}

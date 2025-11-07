@@ -12,6 +12,119 @@ interface TrackInfoProps {
   compact?: boolean;
 }
 
+// AlbumArt
+interface AlbumArtProps {
+  image?: string;
+  size: 'sm' | 'lg';
+}
+const AlbumArt: React.FC<AlbumArtProps> = ({ image, size }) => {
+  const sizeClasses = {
+    sm: 'w-8 h-8',
+    lg: 'w-16 h-16',
+  };
+  return (
+    <div
+      className={clsx(
+        'rounded-lg overflow-hidden flex-shrink-0 bg-white/10',
+        sizeClasses[size]
+      )}
+    >
+      {image ? (
+        <img
+          src={image}
+          alt="Album art"
+          className="w-full h-full object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <Music className={clsx(
+            'text-white/40',
+            size === 'sm' ? 'w-4 h-4' : 'w-8 h-8'
+          )} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// PlaybackIndicator
+interface PlaybackIndicatorProps {
+  isPlaying: boolean;
+}
+const PlaybackIndicator: React.FC<PlaybackIndicatorProps> = ({ isPlaying }) => {
+  return (
+    <motion.div
+      animate={{
+        scale: isPlaying ? [1, 1.1, 1] : 1,
+        opacity: isPlaying ? 1 : 0.5,
+      }}
+      transition={{
+        scale: { repeat: Infinity, duration: 1.5 },
+        opacity: { duration: 0.3 },
+      }}
+      className="flex items-center justify-center"
+    >
+      {isPlaying ? (
+        <Play className="w-4 h-4 text-green-400 fill-current" />
+      ) : (
+        <Pause className="w-4 h-4 text-white/60" />
+      )}
+    </motion.div>
+  );
+};
+
+// OffsetBadge
+interface OffsetBadgeProps {
+  offset: number;
+}
+const OffsetBadge: React.FC<OffsetBadgeProps> = ({ offset }) => {
+  return (
+    <motion.div
+      initial={{ scale: 0 }}
+      animate={{ scale: 1 }}
+      className={clsx(
+        'px-2 py-1 rounded-full text-xs font-mono',
+        offset > 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+      )}
+    >
+      {offset > 0 ? '+' : ''}{offset}ms
+    </motion.div>
+  );
+};
+
+// ControlButton
+interface ControlButtonProps {
+  icon: React.ComponentType<any>;
+  onClick: () => void;
+  tooltip: string;
+  disabled?: boolean;
+}
+const ControlButton: React.FC<ControlButtonProps> = ({
+  icon: Icon,
+  onClick,
+  tooltip,
+  disabled = false,
+}) => {
+  return (
+    <motion.button
+      whileHover={{ scale: disabled ? 1 : 1.1 }}
+      whileTap={{ scale: disabled ? 1 : 0.9 }}
+      onClick={onClick}
+      disabled={disabled}
+      className={clsx(
+        'p-2 rounded-full transition-colors',
+        disabled
+          ? 'text-white/30 cursor-not-allowed'
+          : 'text-white/70 hover:text-white hover:bg-white/10'
+      )}
+      title={tooltip}
+    >
+      <Icon className="w-5 h-5" />
+    </motion.button>
+  );
+};
+
 export const TrackInfo: React.FC<TrackInfoProps> = ({ className, compact = false }) => {
   const currentTrack = useAppStore(selectCurrentTrack);
   const syncState = useAppStore(selectSyncState);
@@ -123,7 +236,7 @@ export const TrackInfo: React.FC<TrackInfoProps> = ({ className, compact = false
       <div className="flex justify-center space-x-4">
         <ControlButton
           icon={SkipBack}
-          onClick={() => adjustOffset(-500)}
+          onClick={() => adjustOffset(currentTrack.id, -500)}
           tooltip="Offset -500ms"
         />
         <ControlButton
@@ -134,7 +247,7 @@ export const TrackInfo: React.FC<TrackInfoProps> = ({ className, compact = false
         />
         <ControlButton
           icon={SkipForward}
-          onClick={() => adjustOffset(500)}
+          onClick={() => adjustOffset(currentTrack.id, 500)}
           tooltip="Offset +500ms"
         />
       </div>
@@ -156,116 +269,4 @@ export const TrackInfo: React.FC<TrackInfoProps> = ({ className, compact = false
   );
 };
 
-interface AlbumArtProps {
-  image?: string;
-  size: 'sm' | 'lg';
-}
-
-const AlbumArt: React.FC<AlbumArtProps> = ({ image, size }) => {
-  const sizeClasses = {
-    sm: 'w-8 h-8',
-    lg: 'w-16 h-16',
-  };
-
-  return (
-    <div
-      className={clsx(
-        'rounded-lg overflow-hidden flex-shrink-0 bg-white/10',
-        sizeClasses[size]
-      )}
-    >
-      {image ? (
-        <img
-          src={image}
-          alt="Album art"
-          className="w-full h-full object-cover"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <Music className={clsx(
-            'text-white/40',
-            size === 'sm' ? 'w-4 h-4' : 'w-8 h-8'
-          )} />
-        </div>
-      )}
-    </div>
-  );
-};
-
-interface PlaybackIndicatorProps {
-  isPlaying: boolean;
-}
-
-const PlaybackIndicator: React.FC<PlaybackIndicatorProps> = ({ isPlaying }) => {
-  return (
-    <motion.div
-      animate={{
-        scale: isPlaying ? [1, 1.1, 1] : 1,
-        opacity: isPlaying ? 1 : 0.5,
-      }}
-      transition={{
-        scale: { repeat: Infinity, duration: 1.5 },
-        opacity: { duration: 0.3 },
-      }}
-      className="flex items-center justify-center"
-    >
-      {isPlaying ? (
-        <Play className="w-4 h-4 text-green-400 fill-current" />
-      ) : (
-        <Pause className="w-4 h-4 text-white/60" />
-      )}
-    </motion.div>
-  );
-};
-
-interface OffsetBadgeProps {
-  offset: number;
-}
-
-const OffsetBadge: React.FC<OffsetBadgeProps> = ({ offset }) => {
-  return (
-    <motion.div
-      initial={{ scale: 0 }}
-      animate={{ scale: 1 }}
-      className={clsx(
-        'px-2 py-1 rounded-full text-xs font-mono',
-        offset > 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-      )}
-    >
-      {offset > 0 ? '+' : ''}{offset}ms
-    </motion.div>
-  );
-};
-
-interface ControlButtonProps {
-  icon: React.ComponentType<any>;
-  onClick: () => void;
-  tooltip: string;
-  disabled?: boolean;
-}
-
-const ControlButton: React.FC<ControlButtonProps> = ({
-  icon: Icon,
-  onClick,
-  tooltip,
-  disabled = false,
-}) => {
-  return (
-    <motion.button
-      whileHover={{ scale: disabled ? 1 : 1.1 }}
-      whileTap={{ scale: disabled ? 1 : 0.9 }}
-      onClick={onClick}
-      disabled={disabled}
-      className={clsx(
-        'p-2 rounded-full transition-colors',
-        disabled
-          ? 'text-white/30 cursor-not-allowed'
-          : 'text-white/70 hover:text-white hover:bg-white/10'
-      )}
-      title={tooltip}
-    >
-      <Icon className="w-5 h-5" />
-    </motion.button>
-  );
-};
+export default TrackInfo;

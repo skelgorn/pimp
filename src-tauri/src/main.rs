@@ -4,3 +4,4 @@
 fn main() {
     letraspip_tauri_lib::run()
 }
+

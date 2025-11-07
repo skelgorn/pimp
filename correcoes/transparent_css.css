@@ -1,4 +1,4 @@
-/* TRANSPARÊNCIA TOTAL - Background transparente */
+/* Ultra minimalist app - TRANSPARÊNCIA TOTAL */
 * {
   margin: 0;
   padding: 0;
@@ -8,17 +8,24 @@
 html, body, #root {
   width: 100%;
   height: 100%;
-  background: transparent !important;
-  overflow: visible;
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+  /* CRÍTICO: Sem nenhum background */
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 /* Disable drag by default */
 body {
   -webkit-app-region: no-drag;
-  background: transparent !important;
 }
 
+/* Enable drag on lyrics container */
+.floating-lyrics-container {
+  -webkit-app-region: drag;
+  cursor: move;
+  pointer-events: auto !important;
+}
 
 /* Disable drag during scroll mode */
 .floating-lyrics-container.scroll-mode {
@@ -26,57 +33,50 @@ body {
   cursor: default;
 }
 
-/* Remove all window decorations */
+/* App container - TOTALMENTE TRANSPARENTE */
 .app-container {
   width: 100vw;
   height: 100vh;
   background: transparent !important;
+  background-color: transparent !important;
   border: none !important;
   outline: none !important;
   box-shadow: none !important;
 }
 
-/* Floating lyrics styling */
+/* Lyrics display - SEM BACKGROUNDS DE DEBUG */
 .lyrics-display {
   width: 100%;
-  height: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 30px 20px;
+  padding: 20px;
+  position: relative;
+  z-index: 10;
   background: transparent !important;
-  overflow: visible;
+  border: none !important;
 }
 
 .floating-lyrics-container {
-  -webkit-app-region: drag;
-  cursor: move;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 8px;
   align-items: center;
   justify-content: center;
-  min-height: 140px;
+  min-height: 100px;
   background: transparent !important;
-  overflow: visible;
-  padding: 15px 0;
 }
 
 .lyric-line {
   text-align: center;
   word-wrap: break-word;
-  max-width: 650px;
+  max-width: 350px;
   margin: 0 auto;
-  line-height: 1.9;
-  padding: 10px 15px;
-  min-height: 40px;
+  line-height: 1.2;
+  padding: 2px 4px;
+  min-height: 20px;
   background: transparent !important;
-  white-space: normal;
-  border: none !important;
-  box-shadow: none !important;
-  clip-path: none !important;
-  overflow: visible !important;
 }
 
 /* Instrumental track styling */
@@ -91,7 +91,7 @@ body {
 /* Current line styling */
 .lyric-line.current {
   color: #ffffff;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 600;
   text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
 }
@@ -99,27 +99,21 @@ body {
 /* Previous/next lines */
 .lyric-line.previous,
 .lyric-line.next {
-  color: #dddddd;
-  font-size: 15px;
-  opacity: 0.85;
-  font-weight: 400;
-  text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.7);
+  color: #cccccc;
+  font-size: 16px;
+  opacity: 0.7;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.6);
 }
 
 /* Draggable window area */
 [data-tauri-drag-region] {
   cursor: move;
   user-select: none;
-  background: transparent !important;
 }
 
-/* Garantir que todos os elementos tenham background transparente */
-div, span, p, h1, h2, h3, h4, h5, h6 {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
-/* Remove qualquer scrollbar */
-::-webkit-scrollbar {
-  display: none;
+/* Subtle drag indicator on hover */
+[data-tauri-drag-region]:hover {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(2px);
+  transition: all 0.2s ease;
 }
